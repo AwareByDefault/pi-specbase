@@ -43,3 +43,12 @@ export {
 	registerWorkflowActivityBridgeHook,
 	WorkflowActivityBridge,
 } from "./workflow-bridge.js";
+export {
+	LOCAL_DELIVERY_CAPABILITY_ID,
+	LOCAL_DELIVERY_WORKFLOW_NAME,
+} from "./workflows/contracts.js";
+export {
+	createLocalDeliveryCapabilityHandler,
+	createSpecbaseCapabilityDispatcher,
+	ensureSpecbaseLocalDeliveryRuntime,
+} from "./workflows/register.js";

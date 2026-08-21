@@ -5,7 +5,6 @@ import {
 	type ActionDispatchFeedback,
 	ActionInFlightRegistry,
 	type CapabilityDispatcher,
-	CapabilityDispatcherRegistry,
 } from "./kanban/action-dispatch.js";
 import { FixtureBoard } from "./kanban/fixture-board.js";
 import { DEMO_BOARD_SNAPSHOT } from "./kanban/fixtures.js";
@@ -24,6 +23,7 @@ import {
 	registerWorkflowActivityBridgeHook,
 	type WorkflowActivityBridge,
 } from "./workflow-bridge.js";
+import { createSpecbaseCapabilityDispatcher, ensureSpecbaseLocalDeliveryRuntime } from "./workflows/register.js";
 
 export const KANBAN_COMMAND = "spcb:kanban";
 export const KANBAN_USAGE = "Usage: /spcb:kanban [--demo | --store <registered-id>]";
@@ -152,7 +152,7 @@ export async function presentLiveBoard(
 export interface SpecbaseKanbanDependencies {
 	readonly loadApi?: () => Promise<SpecbasePublicApi>;
 	readonly presentLive?: LiveKanbanPresenter;
-	/** Delivery owners register capability handlers here; this package never names their workflows. */
+	/** Optional dispatcher override; the default registers the repo-owned local-delivery capability. */
 	readonly capabilityDispatcher?: CapabilityDispatcher;
 	/** Optional public-RPIV observer; false keeps the board fully activity-unaware. */
 	readonly workflowActivityBridge?: WorkflowActivityBridge | false;
@@ -180,7 +180,11 @@ export function registerSpecbaseKanbanExtension(
 			: (dependencies.workflowActivityBridge ?? getWorkflowActivityBridge());
 	const loadApi = dependencies.loadApi ?? loadSpecbasePublicApi;
 	const presentLive = dependencies.presentLive ?? presentLiveBoard;
-	const capabilities = dependencies.capabilityDispatcher ?? new CapabilityDispatcherRegistry();
+	// Register the built-in + contracts lazily. The capability handler awaits this
+	// same memo before launch, so a click cannot race startup registration.
+	void ensureSpecbaseLocalDeliveryRuntime().catch((error) => {
+		console.error("[rpiv-specbase] failed to register local delivery:", error);
+	});
 	const inFlight = new ActionInFlightRegistry();
 	pi.registerCommand(KANBAN_COMMAND, {
 		description: "Open the nearest, registered, or explicit demo Specbase kanban",
@@ -227,6 +231,8 @@ export function registerSpecbaseKanbanExtension(
 				return;
 			}
 
+			const capabilities =
+				dependencies.capabilityDispatcher ?? createSpecbaseCapabilityDispatcher(pi, ctx, source.root);
 			const coordinator = new ActionDispatchCoordinator({
 				validate: (selection) => api.validateDirectActionIntent(selection, { root: source.root }),
 				conversation: {

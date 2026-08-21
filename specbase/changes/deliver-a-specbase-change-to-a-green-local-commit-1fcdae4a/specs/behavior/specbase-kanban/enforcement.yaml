@@ -1,10 +1,10 @@
 bindings:
-  local-delivery-outcome-review:
-    type: review
+  local-delivery-outcome:
+    type: test
     covers:
       - authorized-local-delivery-launch
       - evidence-first-serial-implementation
       - green-bounded-local-gate
       - reviewed-atomic-local-commits
       - local-only-recoverable-boundary
-    source: behavioural
+    source: packages/rpiv-specbase/workflows/local-delivery.test.ts

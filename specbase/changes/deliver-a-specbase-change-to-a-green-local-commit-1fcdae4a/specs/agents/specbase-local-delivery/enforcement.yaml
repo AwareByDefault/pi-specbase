@@ -1,10 +1,10 @@
 bindings:
-  local-delivery-instrument-review:
-    type: review
+  local-delivery-workflow-contract:
+    type: test
     covers:
       - local-delivery-workflow-instrument
       - deterministic-serial-mutation-instrument
       - bounded-repair-instrument
       - workflow-only-skill-contracts
       - local-only-workflow-capability
-    source: enforcement
+    source: packages/rpiv-specbase/workflows/specbase-local-delivery.test.ts

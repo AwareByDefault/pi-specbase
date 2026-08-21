@@ -45,7 +45,7 @@ Every loop unit derives from this immutable artifact, not from task or enforceme
 
 ### 3. Acquire one atomic delivery lease and refuse unsafe starts
 
-Before capture can authorize mutation, acquire an atomic filesystem lease keyed by canonical store and change identity using exclusive creation under a package-owned run-control directory. The lease records run identity and owner metadata, is released only after terminal workflow cleanup, and is reconciled explicitly when its recorded run is provably terminal or abandoned. A second Pi process that races the same change must fail lease acquisition before either process captures mutable context.
+Before capture can authorize mutation, acquire an atomic cross-process filesystem lease keyed by a collision-resistant digest of canonical repository, store, and change identity under a package-owned, symlink-rejecting run-control directory. Use the execution platform's proven cross-platform lock primitive with heartbeat/stale-owner takeover; write owner/run metadata only while the lock is held. Release metadata before atomically releasing ownership. A second Pi process that races the same change must fail acquisition before either process captures mutable context. Resume revalidates canonical identity and reacquires this lease before replay, then releases it after settlement.
 
 A workflow-only readiness skill then reads the context and produces a structured `ready | blocked | replan` disposition. `ready` requires the lease to belong to this run, the canonical action to remain valid, the selected change to be in the required feature/apply state, required planning artifacts to resolve, every declared source contract to identify a native harness, the predecessor projection to be satisfied, and no conflict between the run's allowed write scope and baseline.
 
@@ -75,7 +75,7 @@ A workflow-only local-review skill examines only the tree-minus-baseline delta a
 
 ### 7. Commit only the run-owned, green delta through a capability-filtered host
 
-Extend the Pi workflow execution host with a per-run capability policy for this built-in. Local-delivery children receive only the local filesystem, repository-local command, and non-remote Git surfaces required by their stage contracts; remote Git/GitHub, Specbase review-panel, archive, and successor-dispatch capabilities are absent at the host/tool boundary rather than merely omitted from graph edges.
+Extend the Pi workflow execution host with a per-run capability policy for this built-in. Local-delivery children receive root-confined same-name SDK custom tools plus only the repository-local command and non-remote Git forms required by their stage contracts; these custom definitions override Pi's built-ins at child creation. Remote Git/GitHub, arbitrary interpreters/network commands, Specbase review-panel, archive, and successor-dispatch capabilities are absent at the host/tool boundary rather than merely omitted from graph edges. Unsupported local command composition is audited separately from an actual forbidden capability request.
 
 A workflow-only commit skill receives the delivery context and latest pass/review artifacts. It recomputes status, subtracts the run-start baseline, refuses paths outside frozen scope, verifies HEAD ancestry against the captured start, and creates one or more atomic commits grouped by coherent task/evidence purpose. It never stages by directory-wide wildcard and never commits pre-existing dirty paths.
 

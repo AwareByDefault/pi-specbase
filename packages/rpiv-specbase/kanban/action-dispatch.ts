@@ -262,8 +262,11 @@ export class ActionDispatchCoordinator {
 				return { status: "accepted", route: "skill", actionId: descriptor.actionId, refresh };
 			}
 
-			if (!isSupportedCapabilityDescriptor(descriptor)) {
-				return this.reject(actionId, "The validated capability descriptor is not supported.");
+			if (!isSupportedCapabilityDescriptor(descriptor, selection)) {
+				return this.reject(
+					actionId,
+					"The validated capability descriptor does not match the selected card and store.",
+				);
 			}
 			const intent = Object.freeze({ ...selection });
 			const trigger = correlationTrigger(intent);
@@ -316,6 +319,7 @@ export class ActionDispatchCoordinator {
 
 function isSupportedCapabilityDescriptor(
 	descriptor: DirectActionDescriptor,
+	selection: DirectActionSelection,
 ): descriptor is DirectActionDescriptor & { readonly dispatch: CapabilityDispatchDescriptor } {
 	if (descriptor.dispatch.kind !== "capability") return false;
 	if (
@@ -326,7 +330,9 @@ function isSupportedCapabilityDescriptor(
 	const args = descriptor.dispatch.arguments;
 	const keys = Object.keys(args).sort();
 	if (keys.some((key) => key !== "changeId" && key !== "storeId")) return false;
-	return typeof args.changeId === "string" && (!("storeId" in args) || typeof args.storeId === "string");
+	if (args.changeId !== selection.workItemId) return false;
+	if (selection.storeId === null) return !("storeId" in args);
+	return args.storeId === selection.storeId;
 }
 
 function correlationTrigger(intent: DirectActionSelection): CapabilityTrigger {

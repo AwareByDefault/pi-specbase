@@ -362,6 +362,30 @@ describe("action dispatch coordinator", () => {
 		},
 	);
 
+	it.each([
+		{ arguments: { changeId: "other-change", storeId: "acme" }, label: "change" },
+		{ arguments: { changeId: "change-1", storeId: "other-store" }, label: "store" },
+		{ arguments: { changeId: "change-1" }, label: "missing store" },
+	])(
+		"rejects a canonical capability descriptor whose $label identity differs from the card",
+		async ({ arguments: args }) => {
+			const base = capabilityDescriptor();
+			const descriptor = { ...base, dispatch: { ...base.dispatch, arguments: args } } as DirectActionDescriptor;
+			const capabilitySelection = { ...selection, actionId: base.actionId, dispatchKind: "capability" as const };
+			const dispatch = vi.fn();
+			const coordinator = new ActionDispatchCoordinator({
+				validate: vi.fn(async () => accepted(descriptor)),
+				conversation: { sendUserMessage: vi.fn() },
+				capabilities: { dispatch },
+			});
+			await expect(coordinator.dispatch(capabilitySelection)).resolves.toMatchObject({
+				status: "rejected",
+				reason: expect.stringContaining("does not match"),
+			});
+			expect(dispatch).not.toHaveBeenCalled();
+		},
+	);
+
 	it("keeps accepted dispatch accepted when refresh fails and skips refresh after dispatcher refusal", async () => {
 		const descriptor = capabilityDescriptor();
 		const capabilitySelection = { ...selection, actionId: descriptor.actionId, dispatchKind: "capability" as const };
