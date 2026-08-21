@@ -101,6 +101,7 @@ function fakeApi(snapshot: CanonicalKanbanSnapshot = canonicalSnapshot()): Specb
 			descriptor: null,
 			diagnostics: [],
 		})),
+		recordDirectActionResult: vi.fn(async () => ({ accepted: true, snapshot: {}, diagnostics: [] })),
 		resolveRegisteredStore: vi.fn(async ({ id }) => ({ id, storeRoot: `/registered/${id}` })),
 		resolveCurrentPlanningHomeSync: vi.fn(() => ({ root: "/nearest/project" })),
 	};
@@ -221,6 +222,31 @@ describe("live Specbase board", () => {
 		expect(projected.notices).toEqual(["board_warning: Board warning Next step: Inspect it"]);
 		expect(projected.columns.at(-1)?.cards[0]?.id).toBe("behavior.specbase-kanban");
 		expect(projected.title).toContain("1 diagnostics");
+	});
+
+	it("shows a canonically recorded draft PR link in Reviewing card detail", () => {
+		const base = canonicalSnapshot();
+		const change = {
+			...base.lanes.implementing[0]!,
+			lifecycle: "reviewing" as const,
+			draftPullRequest: {
+				number: 42,
+				url: "https://github.com/acme/widget/pull/42",
+				repository: "acme/widget",
+				base: "main",
+				head: "feature/change",
+				headSha: "a".repeat(40),
+				runId: "run-42",
+			},
+		};
+		const canonical = {
+			...base,
+			lanes: { ...base.lanes, implementing: [], reviewing: [change] },
+		};
+		const reviewing = projectCanonicalSnapshot(canonical, "nearest", "nearest").columns.find(
+			(column) => column.id === "reviewing",
+		)!;
+		expect(reviewing.cards[0]?.summary).toContain("PR #42 https://github.com/acme/widget/pull/42");
 	});
 
 	it("treats a validated cardless canonical snapshot as an empty live store", async () => {

@@ -2,8 +2,11 @@ import { readFileSync } from "node:fs";
 import { verifyShipManifest } from "@juicesharp/rpiv-test-utils";
 import { describe, expect, it } from "vitest";
 import {
+	createDraftPrCapabilityHandler,
 	createLocalDeliveryCapabilityHandler,
 	createSpecbaseCapabilityDispatcher,
+	DRAFT_PR_CAPABILITY_ID,
+	DRAFT_PR_WORKFLOW_NAME,
 	ensureSpecbaseLocalDeliveryRuntime,
 	LOCAL_DELIVERY_CAPABILITY_ID,
 	LOCAL_DELIVERY_WORKFLOW_NAME,
@@ -18,7 +21,10 @@ describe("publish manifest", () => {
 
 	it("exports the local-delivery capability contract through the package root", () => {
 		expect(LOCAL_DELIVERY_CAPABILITY_ID).toBe("specbase.local-delivery");
+		expect(DRAFT_PR_CAPABILITY_ID).toBe("specbase.draft-pr-delivery");
+		expect(DRAFT_PR_WORKFLOW_NAME).toBe("specbase-draft-pr-delivery");
 		expect(LOCAL_DELIVERY_WORKFLOW_NAME).toBe("specbase-local-delivery");
+		expect(createDraftPrCapabilityHandler).toBeTypeOf("function");
 		expect(createLocalDeliveryCapabilityHandler).toBeTypeOf("function");
 		expect(createSpecbaseCapabilityDispatcher).toBeTypeOf("function");
 		expect(ensureSpecbaseLocalDeliveryRuntime).toBeTypeOf("function");

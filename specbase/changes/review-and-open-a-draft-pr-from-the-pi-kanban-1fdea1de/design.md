@@ -29,7 +29,7 @@ Register a lazy built-in workflow named `specbase-draft-pr-delivery`. Keeping it
 
 ### 2. Freeze remote and local identity before review
 
-A capture stage writes a review-delivery context containing store/change identity, repository root, current branch and HEAD, local-delivery run/commit identities, run-start dirty baseline, remote name and normalized repository identity, base branch, intended head branch, and canonical action validation token. It refuses detached HEAD, ambiguous remotes, a dirty run-owned delta, missing local commits, non-green local gate, or an already-incompatible open PR.
+A capture stage, protected by the same collision-resistant per-store/change lease used for local delivery and reacquired before resume, writes a review-delivery context containing store/change identity, repository root, current branch and HEAD, local-delivery run/commit identities, lifecycle-assigned RPIV run identity, run-start dirty baseline, exact pre-panel metadata, remote name and normalized repository identity, base branch, intended head branch, and canonical action validation token. It refuses detached HEAD, ambiguous remotes, a dirty run-owned delta, missing local commits, non-green local gate, or an already-incompatible open PR.
 
 The context never stores credentials. Remote authentication remains inside the configured Git/GitHub tools and process environment.
 
@@ -37,7 +37,7 @@ The context never stores credentials. Remote authentication remains inside the c
 
 A `review-panel` stage dispatches the installed generated `specbase-review-panel` skill against the selected change. The workflow does not copy lens rosters, deterministic-gate procedures, severity rules, or completeness logic; the generated instrument resolves them from the current Specbase model.
 
-The current panel's durable knowledge is its report in the stage transcript. A short continuation producer in the same session materializes that report as a structured artifact. This is the one justified `sessionPolicy: continue` seam: Q3 requires panel reasoning that the current skill does not publish as a file. If the panel later declares a report outcome, the workflow switches to that artifact and removes continuation without changing routing semantics.
+The current panel's durable knowledge is its report in the stage transcript. A short continuation producer in the same session materializes that report as a structured artifact. This is the one justified `sessionPolicy: continue` seam: Q3 requires panel reasoning that the current skill does not publish as a file. The current generated panel also writes `lastReviewedAt`; capture snapshots the exact metadata text and a deterministic stage restores that panel-only footprint after materialization, so Reviewing is not derived before a PR exists. Terminal cleanup restores it after failed materialization as well. If the panel later declares a report outcome and supports no-footprint operation, the workflow removes both seams without changing routing semantics.
 
 ### 4. Classify disposition without changing finding strength
 
@@ -77,7 +77,7 @@ Multiple matching PRs, a non-draft open PR, a closed/merged conflict, an unexpec
 
 ### 8. Commit remote outcome through canonical Specbase state
 
-After the draft descriptor is confirmed, the workflow submits the canonical action completion/result containing change identity, commit head, PR number/URL, and correlated run identity. `@awarebydefault/specbase` decides the resulting lifecycle state. The board then performs its normal live refresh and must receive a canonical Reviewing card linked to that PR.
+After the draft descriptor is confirmed, the workflow calls the companion package's supported `recordDirectActionResult` boundary with change identity, commit head, PR number/URL, and lifecycle-assigned run identity. The API compare-and-sets the typed descriptor (exact replay succeeds; conflict stops), preserves metadata, and decides the resulting lifecycle state without performing remote work. The board then performs its normal live refresh and must receive a canonical Reviewing card linked to that PR.
 
 If recording or refresh fails after a verified PR exists, the run stops with the PR descriptor in its audit artifact. Resume reuses the existing draft and retries canonical recording; it never creates a replacement PR just to recover board state.
 

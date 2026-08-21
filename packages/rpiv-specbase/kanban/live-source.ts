@@ -3,6 +3,7 @@ import {
 	createDirectActionSelection,
 	type DirectActionCatalog,
 	type DirectActionDescriptor,
+	type DirectActionDiagnostic,
 	type DirectActionValidation,
 } from "./action-dispatch.js";
 import type { BoardAction, BoardCard, BoardColumn, BoardSnapshot } from "./types.js";
@@ -40,6 +41,15 @@ export interface CanonicalChangeCard {
 	readonly artifacts: CanonicalProgress;
 	readonly tasks: CanonicalProgress;
 	readonly lifecycle: "proposed" | "enforcement" | "ready-to-apply" | "implementing" | "reviewing";
+	readonly draftPullRequest?: {
+		readonly number: number;
+		readonly url: string;
+		readonly repository: string;
+		readonly base: string;
+		readonly head: string;
+		readonly headSha: string;
+		readonly runId: string;
+	};
 	readonly diagnostics?: readonly CanonicalDiagnostic[];
 	readonly [key: string]: unknown;
 }
@@ -107,6 +117,15 @@ export interface SpecbasePublicApi {
 		value: unknown,
 		options?: { readonly root?: string },
 	) => Promise<DirectActionValidation>;
+	readonly recordDirectActionResult: (
+		intent: unknown,
+		result: unknown,
+		options?: { readonly root?: string },
+	) => Promise<{
+		readonly accepted: boolean;
+		readonly snapshot: unknown;
+		readonly diagnostics: readonly DirectActionDiagnostic[];
+	}>;
 	readonly resolveRegisteredStore: (input: { readonly id: string }) => Promise<{
 		readonly id: string;
 		readonly storeRoot: string;
@@ -155,6 +174,7 @@ export async function loadSpecbasePublicApi(importer: DynamicImport = dynamicImp
 		hasFunction(module, "validateKanbanBoardSnapshot") &&
 		hasFunction(module, "getDirectActions") &&
 		hasFunction(module, "validateDirectActionIntent") &&
+		hasFunction(module, "recordDirectActionResult") &&
 		hasFunction(module, "resolveRegisteredStore") &&
 		hasFunction(module, "resolveCurrentPlanningHomeSync");
 	if (!complete) {
@@ -308,7 +328,10 @@ function canonicalCardSummary(card: CanonicalWorkCard | CanonicalSpecCard): stri
 			const diagnostics = card.diagnostics?.length
 				? ` · ${card.diagnostics.length} diagnostics · ${formatDiagnostic(card.diagnostics[0]!)}`
 				: "";
-			return `${card.lifecycle} · tasks ${progress(card.tasks)} · artifacts ${progress(card.artifacts)}${diagnostics}`;
+			const pullRequest = card.draftPullRequest
+				? ` · PR #${card.draftPullRequest.number} ${card.draftPullRequest.url}`
+				: "";
+			return `${card.lifecycle} · tasks ${progress(card.tasks)} · artifacts ${progress(card.artifacts)}${pullRequest}${diagnostics}`;
 		}
 		case "archive": {
 			const artifacts = card.artifacts ? ` · artifacts ${progress(card.artifacts)}` : "";

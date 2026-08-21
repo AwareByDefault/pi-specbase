@@ -25,7 +25,11 @@ vi.mock("@juicesharp/rpiv-workflow", async (importOriginal) => ({
 }));
 
 import { deliveryLeasePath, readDeliveryLease } from "./lease.js";
-import { __resetSpecbaseLocalDeliveryRegistration, createLocalDeliveryCapabilityHandler } from "./register.js";
+import {
+	__resetSpecbaseLocalDeliveryRegistration,
+	createDraftPrCapabilityHandler,
+	createLocalDeliveryCapabilityHandler,
+} from "./register.js";
 
 const roots: string[] = [];
 const root = () => {
@@ -112,5 +116,37 @@ describe("specbase.local-delivery capability handler", () => {
 		expect(
 			readDeliveryLease(deliveryLeasePath({ root: cwd, storeId: "acme", changeId: "change-1" })),
 		).toBeUndefined();
+	});
+});
+
+describe("specbase.draft-pr-delivery capability handler", () => {
+	it("launches the separate remote workflow with exact correlation", async () => {
+		const cwd = root();
+		const draftRequest = {
+			...request,
+			descriptor: {
+				...request.descriptor,
+				actionId: "open-draft-pr",
+				dispatch: {
+					kind: "capability" as const,
+					capabilityId: "specbase.draft-pr-delivery" as const,
+					arguments: { changeId: "change-1", storeId: "acme" },
+				},
+			},
+			intent: { ...request.intent, actionId: "open-draft-pr" },
+			trigger: { ...request.trigger, meta: { ...request.trigger.meta, actionId: "open-draft-pr" } },
+		};
+		mocks.runWorkflowByName.mockImplementation(async (_ctx, name, input, options) => {
+			options.lifecycle.onWorkflowStart({ runId: "draft-run" });
+			expect(name).toBe("specbase-draft-pr-delivery");
+			expect(JSON.parse(input)).toMatchObject({
+				authorization: { capabilityId: "specbase.draft-pr-delivery", changeId: "change-1", root: cwd },
+			});
+			return { runId: "draft-run", success: true, stagesCompleted: 1, termination: "completed" };
+		});
+		await expect(createDraftPrCapabilityHandler({} as never, { cwd } as never, cwd)(draftRequest)).resolves.toEqual({
+			accepted: true,
+			runId: "draft-run",
+		});
 	});
 });

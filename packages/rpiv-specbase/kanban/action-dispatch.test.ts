@@ -115,6 +115,7 @@ function fakeApi(
 			options.getActions ??
 			vi.fn(async ({ workItemId }) => catalog(workItemId, workItemId === "change-1" ? [skillDescriptor] : [])),
 		validateDirectActionIntent: options.validate ?? vi.fn(async () => accepted(skillDescriptor)),
+		recordDirectActionResult: vi.fn(async () => ({ accepted: true, snapshot: {}, diagnostics: [] })),
 		resolveRegisteredStore: vi.fn(async ({ id }) => ({ id, storeRoot: `/stores/${id}` })),
 		resolveCurrentPlanningHomeSync: vi.fn(() => ({ root: "/nearest" })),
 	};

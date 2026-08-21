@@ -48,6 +48,11 @@ export {
 	LOCAL_DELIVERY_WORKFLOW_NAME,
 } from "./workflows/contracts.js";
 export {
+	DRAFT_PR_CAPABILITY_ID,
+	DRAFT_PR_WORKFLOW_NAME,
+} from "./workflows/draft-pr-contracts.js";
+export {
+	createDraftPrCapabilityHandler,
 	createLocalDeliveryCapabilityHandler,
 	createSpecbaseCapabilityDispatcher,
 	ensureSpecbaseLocalDeliveryRuntime,

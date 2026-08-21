@@ -83,6 +83,7 @@ export function gitDirtyPaths(cwd: string): string[] {
 		.filter(
 			(path) =>
 				!path.startsWith(".rpiv/artifacts/specbase-local-delivery/") &&
+				!path.startsWith(".rpiv/artifacts/specbase-draft-pr-delivery/") &&
 				!path.startsWith(".rpiv/specbase-local-delivery/") &&
 				!path.startsWith(".rpiv/workflows/"),
 		)
