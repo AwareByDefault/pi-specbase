@@ -380,9 +380,22 @@ export type StageDef<TIn = unknown, TOut = unknown> =
  * key in `edges` must exist in `stages`; every string value must exist in
  * `stages` or be `"stop"`. Validated at load time by `validate-workflow.ts`.
  */
+export interface WorkflowResumeContext {
+	readonly cwd: string;
+	readonly runId: string;
+	readonly input: string;
+}
+
 export interface Workflow {
 	name: string;
 	description?: string;
+	/** False for workflows that intentionally reject all replay. */
+	resumable?: boolean;
+	/** Optional external-ownership guard acquired before replay and released after settlement. */
+	resume?: {
+		before(context: WorkflowResumeContext): void | Promise<void>;
+		after?(context: WorkflowResumeContext): void | Promise<void>;
+	};
 	start: string;
 	stages: Record<string, StageDef>;
 	edges: Record<string, EdgeTarget>;

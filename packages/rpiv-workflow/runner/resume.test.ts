@@ -2114,5 +2114,42 @@ describe("resumeWorkflow", () => {
 		});
 	});
 
+	it("acquires and releases workflow-specific external ownership around resume", async () => {
+		const header = { ...resumeHeader, runId: "2026-06-03_07-50-00-cafe" };
+		writeRun(header, [
+			{
+				session: null,
+				stageNumber: 1,
+				stage: "plan",
+				skill: "plan",
+				status: "completed",
+				ts: "2026-06-03T07:51:00Z",
+				output: fakeOutput([fakeArtifact("plans/p1.md")]),
+			},
+		]);
+		writeArtifact(".rpiv/artifacts/builds/b1.md");
+		const chain = createMockSessionChain({
+			cwd: tmpDir,
+			steps: [{ branch: [mockAssistantMessage("Wrote .rpiv/artifacts/builds/b1.md")] }],
+		});
+		const calls: string[] = [];
+		await resumeWorkflow(chain.ctx, {
+			workflow: {
+				...twoStageWf,
+				resume: {
+					before: ({ runId }) => {
+						calls.push(`before:${runId}`);
+					},
+					after: ({ runId }) => {
+						calls.push(`after:${runId}`);
+					},
+				},
+			},
+			header,
+			ref: "@lease-run",
+		});
+		expect(calls).toEqual([`before:${header.runId}`, `after:${header.runId}`]);
+	});
+
 	// Mid-loop resume dispatch (fanout/iterate/assess) is covered end-to-end in `resume-loop.test.ts`.
 });
