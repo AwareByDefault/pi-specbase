@@ -5,11 +5,11 @@ The fixture-backed board proves Pi interaction but cannot help users understand 
 ## What Changes
 
 - Let `/spcb:kanban` open the nearest Specbase store or an explicitly selected registered store.
-- Render canonical stable identities, lifecycle columns, progress, stack context, and diagnostics from the Specbase headless board snapshot.
+- Render canonical stable identities, lifecycle columns, progress, specifications, and actionable diagnostics from the Specbase headless board snapshot.
 - Add explicit refresh behavior that replaces stale board state while preserving a meaningful selection when stable identities remain.
 - Surface store-resolution, load, and refresh failures without substituting fixture data for live state.
 - Keep `/spcb:kanban --demo` available as an explicit deterministic mode.
-- Defer action dispatch, workflow activity, and delivery automation.
+- Defer stack relationships and action composition until the companion snapshot/catalog exposes them, and defer workflow activity and delivery automation.
 
 ## Planes
 
@@ -30,6 +30,6 @@ The fixture-backed board proves Pi interaction but cannot help users understand 
 ## Impact
 
 - Extends the projected `packages/rpiv-specbase/` command and board-source boundary from the predecessor change.
-- Adds a runtime dependency on the public `@awarebydefault/specbase` lifecycle and headless-board APIs.
+- Adds an optional runtime peer on the public `@awarebydefault/specbase` lifecycle and headless-board APIs; live mode loads it dynamically while demo mode remains installable without it.
 - Adds live-store adapter and parity fixtures/tests during implementation; no canonical lifecycle, board, or action semantics move into this repository.
 - Does not change `packages/rpiv-pi/` or `packages/rpiv-workflow/` ownership.

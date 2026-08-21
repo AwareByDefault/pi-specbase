@@ -27,10 +27,11 @@ function createBoard(options: { rows?: number; columns?: number; subscribe?: () 
 }
 
 describe("fixture board", () => {
-	it("accepts only explicit demo mode", () => {
+	it("keeps explicit demo mode independent while classifying live sources", () => {
 		expect(parseKanbanMode("--demo")).toBe("demo");
-		expect(parseKanbanMode("")).toBe("unsupported");
-		expect(parseKanbanMode("--store local")).toBe("unsupported");
+		expect(parseKanbanMode("")).toBe("nearest");
+		expect(parseKanbanMode("--store local")).toBe("store");
+		expect(parseKanbanMode("--demo --store local")).toBe("unsupported");
 	});
 
 	it("moves focus safely across populated and empty columns", () => {

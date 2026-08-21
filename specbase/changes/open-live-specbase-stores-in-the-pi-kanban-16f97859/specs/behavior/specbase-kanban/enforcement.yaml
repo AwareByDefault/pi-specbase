@@ -1,8 +1,9 @@
 bindings:
-  live-kanban-projection-review:
-    type: review
+  live-kanban-board-test:
+    type: test
     covers:
+      - explicit-demo-board
       - live-store-selection
       - authoritative-live-board-projection
       - identity-preserving-refresh
-    source: behavioural
+    source: packages/rpiv-specbase/kanban/live-board.test.ts

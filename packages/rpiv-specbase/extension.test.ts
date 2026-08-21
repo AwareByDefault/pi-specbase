@@ -81,7 +81,7 @@ describe("rpiv-specbase extension", () => {
 		registerSpecbaseKanbanExtension(pi, present);
 		const command = captured.commands.get(KANBAN_COMMAND)!;
 		const usageCtx = createMockCtx({ hasUI: true, mode: "tui" });
-		await command.handler("", usageCtx as never);
+		await command.handler("--unsupported", usageCtx as never);
 		expect(usageCtx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Usage"), "error");
 		const headlessCtx = createMockCtx({ hasUI: false, mode: "print" });
 		await command.handler("--demo", headlessCtx as never);

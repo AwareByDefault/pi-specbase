@@ -5,5 +5,11 @@ export default function (pi: ExtensionAPI): void {
 	registerSpecbaseKanbanExtension(pi);
 }
 
-export { registerSpecbaseKanbanExtension } from "./extension.js";
+export { parseKanbanRequest, registerSpecbaseKanbanExtension } from "./extension.js";
+export { LiveBoard, LiveBoardController } from "./kanban/live-board.js";
+export {
+	createLiveBoardSource,
+	loadSpecbasePublicApi,
+	projectCanonicalSnapshot,
+} from "./kanban/live-source.js";
 export type { BoardIntent, BoardSelectionIntent, BoardSnapshot } from "./kanban/types.js";

@@ -9,7 +9,7 @@ The canonical library exposes public store resolution and headless board snapsho
 **Goals:**
 - Resolve the nearest store from Pi's current working directory or an explicitly selected registered store.
 - Adapt the canonical headless board snapshot to the projected renderer input without semantic recomputation.
-- Preserve canonical identities, lifecycle ordering, progress, stacks, and diagnostics.
+- Preserve canonical identities, lifecycle ordering, progress, accepted specifications, and diagnostics.
 - Refresh live state predictably while retaining a meaningful focus by stable identity.
 - Keep live errors visible and keep explicit demo mode independent.
 
@@ -22,9 +22,9 @@ The canonical library exposes public store resolution and headless board snapsho
 
 ## Decisions
 
-### 1. Consume the canonical library API in process
+### 1. Consume the canonical library API in process through an optional peer
 
-Add `@awarebydefault/specbase` as a runtime dependency of `packages/rpiv-specbase/` and import only its documented public entry points. Do not execute the `specbase` CLI, parse command text, inspect private store files, or copy lifecycle constants. In-process contracts preserve typed stable identities and let parity tests compare the canonical snapshot with the Pi adapter output.
+Declare `@awarebydefault/specbase` as an optional runtime peer of `packages/rpiv-specbase/` and dynamically load only its documented public entry points when live mode is requested. This keeps the Pi package and explicit demo mode installable while the companion API branch is unpublished. Missing or incompatible peers produce actionable live-mode errors. Do not execute the `specbase` CLI, parse command text, inspect private store files, or copy lifecycle constants. In-process contracts preserve typed stable identities and let parity tests compare the canonical snapshot with the Pi adapter output; tests inject canonical API fakes instead of importing an unpublished checkout.
 
 ### 2. Make source choice explicit in command parsing
 
@@ -37,7 +37,7 @@ Conflicting modes or an unknown store produce actionable feedback and do not ope
 
 ### 3. Use one live adapter over a complete canonical snapshot
 
-A live source adapter asks the canonical library for one headless board snapshot and maps only presentation fields into the renderer model. The adapter preserves column order, card identity, lifecycle state, progress, stack relationships, diagnostics, and canonical action descriptors without deciding their meaning. Fields unsupported by the current renderer remain attached as opaque source metadata rather than being discarded or rederived.
+A live source adapter asks the canonical library for one headless board snapshot and maps only presentation fields into the renderer model. The adapter preserves column order, card identity, lifecycle state, progress, accepted specifications, and diagnostics without deciding their meaning. Fields unsupported by the current renderer remain attached as opaque source metadata rather than being discarded or rederived. The current companion snapshot does not publish stack relationships or action descriptors; those are explicit later-contract dependencies rather than values this adapter may infer.
 
 The renderer continues to know nothing about store discovery or Specbase storage. This protects the source-neutral boundary established by the predecessor and keeps demo/live parity testable at the snapshot seam.
 
@@ -53,7 +53,7 @@ Initial live-load failure closes the loader and reports the canonical diagnostic
 
 ### 6. Prove snapshot equivalence at the adapter boundary
 
-Implementation tests will construct canonical headless snapshots containing representative lifecycle states, partial progress, stack membership, warnings/errors, and identity-preserving refresh changes. The Pi adapter output is compared field-for-field for canonical data and then rendered through the same board interaction fixture used by demo mode. The canonical library remains the oracle; copied expected lifecycle rules are not.
+Implementation tests will construct canonical headless snapshots containing representative lifecycle states, partial progress, accepted specifications, warnings/errors, and identity-preserving refresh changes. The Pi adapter output is compared field-for-field for canonical data and then rendered through the same board interaction fixture used by demo mode. The canonical library remains the oracle; copied expected lifecycle rules are not.
 
 ## Enforcement design
 
@@ -61,7 +61,7 @@ Implementation tests will construct canonical headless snapshots containing repr
 
 ## Risks / Trade-offs
 
-- [The companion API changes before implementation] -> Pin a compatible public package range and isolate adaptation behind one module with contract-level tests.
+- [The companion API changes before publication] -> Keep the peer optional, validate the dynamically loaded public surface at runtime, and isolate adaptation behind one module with contract-level fake tests.
 - [The Pi adapter silently drops canonical fields] -> Compare canonical and adapted snapshots at the boundary and retain opaque metadata needed by later slices.
 - [Refresh moves focus unpredictably] -> Reconcile by stable identity with a deterministic fallback order.
 - [Concurrent refreshes repaint stale data] -> Serialize requests or gate commits by request generation so only the latest result can replace state.
@@ -69,7 +69,7 @@ Implementation tests will construct canonical headless snapshots containing repr
 
 ## Migration Plan
 
-1. Add the canonical Specbase dependency to the projected package.
+1. Add the canonical Specbase package as an optional peer and dynamically load it only for live requests.
 2. Add command source parsing and the live adapter while leaving `--demo` unchanged.
 3. Add initial-load and refresh states to the existing board component.
 4. Verify canonical snapshot parity and focus reconciliation with package tests.
