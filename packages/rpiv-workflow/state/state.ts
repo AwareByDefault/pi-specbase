@@ -159,6 +159,16 @@ export interface LoopCapRow {
 	ts: string;
 }
 
+/** Durable run-level terminal marker appended after the chain has fully settled. */
+export interface WorkflowTerminalRow {
+	type: "workflow-terminal";
+	outcome: "completed" | "stopped" | "failed" | "aborted" | "cancelled";
+	ts: string;
+	error?: string;
+	/** A dropped failure row makes engine resume unsafe even when the run stopped. */
+	resumeSafe: boolean;
+}
+
 /**
  * On-disk schema version stamped into every new header's `v`. Bump when a
  * row/envelope shape changes in a way the resume fold cannot replay —
@@ -309,7 +319,8 @@ export {
 	readLastStage,
 	readLoopCaps,
 	readRoutingDecisions,
+	readWorkflowTerminal,
 	summarizeRun,
 } from "./reads.js";
 export { resolveRun } from "./resolve.js";
-export { appendHeader, appendLoopCap, appendRoutingDecision, appendStage } from "./writes.js";
+export { appendHeader, appendLoopCap, appendRoutingDecision, appendStage, appendWorkflowTerminal } from "./writes.js";

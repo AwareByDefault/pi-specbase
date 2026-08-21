@@ -197,7 +197,7 @@ describe("runWorkflow", () => {
 	/** Read the single JSONL state file produced for a run, as parsed objects. */
 	const readState = (cwd: string): { header: Record<string, unknown>; stages: Array<Record<string, unknown>> } => {
 		const dir = join(cwd, ".rpiv", "workflows", "runs");
-		const files = readdirSync(dir);
+		const files = readdirSync(dir).filter((file) => file.endsWith(".jsonl"));
 		expect(files).toHaveLength(1);
 		const lines = readFileSync(join(dir, files[0]!), "utf-8").trim().split("\n");
 		return {

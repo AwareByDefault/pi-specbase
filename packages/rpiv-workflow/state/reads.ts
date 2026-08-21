@@ -19,7 +19,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { type Artifact, handleToString } from "../handle.js";
 import { formatError } from "../internal-utils.js";
-import { stateFilePath } from "./paths.js";
+import { stateFilePath, terminalFilePath } from "./paths.js";
 import { enumerateRunIds, readFirstJsonlLine } from "./raw.js";
 import type {
 	LoopCapRow,
@@ -29,6 +29,7 @@ import type {
 	StageStatus,
 	WorkflowHeader,
 	WorkflowStage,
+	WorkflowTerminalRow,
 } from "./state.js";
 
 /**
@@ -124,6 +125,18 @@ const isRoutingDecision = (row: unknown): row is RoutingDecision =>
 /** Shape guard for loop-cap telemetry rows. */
 const isLoopCapRow = (r: unknown): r is LoopCapRow => (r as { type?: unknown } | undefined)?.type === "loop-cap";
 
+const isWorkflowTerminalRow = (row: unknown): row is WorkflowTerminalRow => {
+	if (!row || typeof row !== "object") return false;
+	const value = row as Partial<WorkflowTerminalRow>;
+	return (
+		value.type === "workflow-terminal" &&
+		["completed", "stopped", "failed", "aborted", "cancelled"].includes(value.outcome ?? "") &&
+		typeof value.ts === "string" &&
+		typeof value.resumeSafe === "boolean" &&
+		(value.error === undefined || typeof value.error === "string")
+	);
+};
+
 const isWorkflowHeader = (row: unknown): row is WorkflowHeader =>
 	!!row &&
 	typeof (row as { runId?: unknown }).runId === "string" &&
@@ -177,6 +190,15 @@ export function readRoutingDecisions(cwd: string, runId: string): RoutingDecisio
 /** All loop-cap telemetry rows for a run, in trail order. */
 export function readLoopCaps(cwd: string, runId: string): LoopCapRow[] {
 	return readJsonlRows(cwd, runId, isLoopCapRow);
+}
+
+export function readWorkflowTerminal(cwd: string, runId: string): WorkflowTerminalRow | undefined {
+	try {
+		const value: unknown = JSON.parse(readFileSync(terminalFilePath(cwd, runId), "utf-8"));
+		return isWorkflowTerminalRow(value) ? value : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 export function listArtifacts(

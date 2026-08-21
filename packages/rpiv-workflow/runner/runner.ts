@@ -34,12 +34,14 @@ import {
 import { pruneOrphanedChildSessions } from "../sessions/index.js";
 import {
 	appendHeader,
+	appendWorkflowTerminal,
 	type ClaimResult,
 	claimName,
 	generateRunId,
 	readAllStages,
 	releaseName,
 	STATE_SCHEMA_VERSION,
+	summarizeRun,
 	type WorkflowHeader,
 } from "../state/index.js";
 import { childSessionsDir } from "../state/paths.js";
@@ -94,6 +96,24 @@ async function executeRun(
 			? { droppedFailureRows: state.telemetry.droppedFailureRows }
 			: {}),
 	};
+
+	const recap = summarizeRun(run.cwd, run.runId);
+	const terminalStatus = recap?.outcome === "stopped" ? "stopped" : state.termination.status;
+	if (terminalStatus !== "running") {
+		const written = appendWorkflowTerminal(run.cwd, run.runId, {
+			type: "workflow-terminal",
+			outcome: terminalStatus,
+			ts: nowIso(),
+			resumeSafe:
+				state.telemetry.droppedFailureRows.length === 0 &&
+				terminalStatus !== "completed" &&
+				terminalStatus !== "stopped",
+			...(recap?.failureReason || state.termination.error
+				? { error: recap?.failureReason ?? state.termination.error }
+				: {}),
+		});
+		if (!written) ctx.ui.notify("Workflow settled, but its terminal audit marker could not be persisted.", "warning");
+	}
 
 	await run.lifecycle.fire(ctx, "onWorkflowEnd", result, lifecycleCtxFor(run));
 	return result;
@@ -353,7 +373,9 @@ export async function resumeWorkflow(
 				runId: header.runId, // SAME run — new rows append to the same file
 				state: recon.state,
 				visited: recon.visited,
-				trigger: { kind: "command", name: "wf", meta: { resumedFrom: options.ref } },
+				trigger: header.trigger
+					? { ...header.trigger, meta: { ...header.trigger.meta, resumedFrom: options.ref } }
+					: { kind: "command", name: "wf", meta: { resumedFrom: options.ref } },
 			},
 		);
 		return await executeRun(execCtx, run, selectResumeEntry(execCtx, recon, run));

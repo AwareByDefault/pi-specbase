@@ -15,12 +15,14 @@ export type {
 	StageStatus,
 	WorkflowHeader,
 	WorkflowStage,
+	WorkflowTerminalRow,
 } from "./state.js";
 export {
 	appendHeader,
 	appendLoopCap,
 	appendRoutingDecision,
 	appendStage,
+	appendWorkflowTerminal,
 	claimName,
 	generateRunId,
 	isValidName,
@@ -35,6 +37,7 @@ export {
 	readLoopCaps,
 	readNamesIndex,
 	readRoutingDecisions,
+	readWorkflowTerminal,
 	rebuildIndex,
 	releaseName,
 	resolveRun,

@@ -75,7 +75,11 @@
 // engine. This entry layers the runner on top for embedders.
 export * from "./registration.js";
 
-// The execution engine — the only re-export unique to this entry.
+// Durable terminality uses the resume fold, so it lives on the engine-bearing
+// main entry rather than the runner-free registration/startup entries.
+export { type RunStatus, type RunStatusName, readRunStatus } from "./run-status.js";
+
+// The execution engine — the remaining re-exports unique to this entry.
 export {
 	type ResumeWorkflowByRunIdOptions,
 	type ResumeWorkflowOptions,

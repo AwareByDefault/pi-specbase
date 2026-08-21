@@ -2064,5 +2064,55 @@ describe("resumeWorkflow", () => {
 		});
 	});
 
+	it("preserves an external correlation trigger while stamping resumedFrom", async () => {
+		const header = {
+			...resumeHeader,
+			runId: "2026-06-03_07-45-00-cafe",
+			trigger: {
+				kind: "programmatic" as const,
+				source: "rpiv-specbase",
+				meta: { storeId: "acme", workItemId: "change-1", actionId: "deliver-local", dispatchKind: "capability" },
+			},
+		};
+		writeRun(header, [
+			{
+				session: null,
+				stageNumber: 1,
+				stage: "plan",
+				skill: "plan",
+				status: "completed",
+				ts: "2026-06-03T07:46:00Z",
+				output: fakeOutput([fakeArtifact("plans/p1.md")]),
+			},
+		]);
+		writeArtifact(".rpiv/artifacts/builds/b1.md");
+		const chain = createMockSessionChain({
+			cwd: tmpDir,
+			steps: [{ branch: [mockAssistantMessage("Wrote .rpiv/artifacts/builds/b1.md")] }],
+		});
+		const captured: unknown[] = [];
+		await resumeWorkflow(chain.ctx, {
+			workflow: twoStageWf,
+			header,
+			ref: "@external-run",
+			lifecycle: {
+				onWorkflowStart: (ctx) => {
+					captured.push(ctx.trigger);
+				},
+			},
+		});
+		expect(captured[0]).toMatchObject({
+			kind: "programmatic",
+			source: "rpiv-specbase",
+			meta: {
+				storeId: "acme",
+				workItemId: "change-1",
+				actionId: "deliver-local",
+				dispatchKind: "capability",
+				resumedFrom: "@external-run",
+			},
+		});
+	});
+
 	// Mid-loop resume dispatch (fanout/iterate/assess) is covered end-to-end in `resume-loop.test.ts`.
 });
