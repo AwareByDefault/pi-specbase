@@ -1,0 +1,10 @@
+id: deliver-specbase-work-from-an-interactive-pi-kanban-df587c88
+summary: Deliver Specbase work from an interactive Pi kanban
+created: 2026-08-21
+members:
+  - open-a-fixture-backed-specbase-kanban-in-pi-dc4e7851
+  - open-live-specbase-stores-in-the-pi-kanban-16f97859
+  - dispatch-valid-actions-from-the-pi-kanban-a4332ab3
+  - project-rpiv-workflow-activity-onto-kanban-cards-102cfd5c
+  - deliver-a-specbase-change-to-a-green-local-commit-1fcdae4a
+  - review-and-open-a-draft-pr-from-the-pi-kanban-1fdea1de

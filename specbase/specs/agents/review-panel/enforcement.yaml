@@ -1,0 +1,5 @@
+bindings:
+  panel-review:
+    type: review
+    covers: [panel-covers-planes, panel-reviews-implemented-specs]
+    source: "specbase/config.yaml"

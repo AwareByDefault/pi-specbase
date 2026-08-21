@@ -1,0 +1,10 @@
+bindings:
+  local-delivery-outcome-review:
+    type: review
+    covers:
+      - authorized-local-delivery-launch
+      - evidence-first-serial-implementation
+      - green-bounded-local-gate
+      - reviewed-atomic-local-commits
+      - local-only-recoverable-boundary
+    source: behavioural

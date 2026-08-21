@@ -1,0 +1,5 @@
+bindings:
+  specbase-validates:
+    type: command
+    covers: practices-sdd
+    source: "specbase/config.yaml"

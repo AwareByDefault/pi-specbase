@@ -1,0 +1,10 @@
+bindings:
+  kanban-action-dispatch-review:
+    type: review
+    covers:
+      - authoritative-card-actions
+      - exact-validated-intent-transport
+      - conversational-action-dispatch
+      - autonomous-action-dispatch
+      - dispatch-feedback-and-refresh
+    source: behavioural

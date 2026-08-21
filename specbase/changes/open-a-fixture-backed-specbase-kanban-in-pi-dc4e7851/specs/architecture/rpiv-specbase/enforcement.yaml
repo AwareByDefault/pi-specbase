@@ -1,0 +1,8 @@
+bindings:
+  rpiv-specbase-boundary-review:
+    type: review
+    covers:
+      - pi-integration-ownership
+      - canonical-specbase-semantics-remain-external
+      - source-neutral-renderer-boundary
+    source: architectural

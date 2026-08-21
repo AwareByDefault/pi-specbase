@@ -1,0 +1,8 @@
+bindings:
+  live-kanban-projection-review:
+    type: review
+    covers:
+      - live-store-selection
+      - authoritative-live-board-projection
+      - identity-preserving-refresh
+    source: behavioural

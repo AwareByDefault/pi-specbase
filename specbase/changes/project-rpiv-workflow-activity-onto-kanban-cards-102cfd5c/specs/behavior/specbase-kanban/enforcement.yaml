@@ -1,0 +1,9 @@
+bindings:
+  card-workflow-activity-review:
+    type: review
+    covers:
+      - correlated-live-workflow-activity
+      - exact-workflow-outcome-presentation
+      - resumable-run-identity
+      - reopened-board-activity-recap
+    source: behavioural

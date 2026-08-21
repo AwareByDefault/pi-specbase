@@ -1,0 +1,10 @@
+bindings:
+  local-delivery-instrument-review:
+    type: review
+    covers:
+      - local-delivery-workflow-instrument
+      - deterministic-serial-mutation-instrument
+      - bounded-repair-instrument
+      - workflow-only-skill-contracts
+      - local-only-workflow-capability
+    source: enforcement

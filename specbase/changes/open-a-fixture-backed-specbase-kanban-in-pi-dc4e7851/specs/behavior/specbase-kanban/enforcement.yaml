@@ -1,0 +1,8 @@
+bindings:
+  fixture-kanban-interaction-review:
+    type: review
+    covers:
+      - explicit-demo-board
+      - keyboard-board-navigation
+      - selected-fixture-action-intent
+    source: behavioural
