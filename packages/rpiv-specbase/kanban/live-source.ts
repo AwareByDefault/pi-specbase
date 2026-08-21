@@ -1,3 +1,9 @@
+import {
+	createDirectActionSelection,
+	type DirectActionCatalog,
+	type DirectActionDescriptor,
+	type DirectActionValidation,
+} from "./action-dispatch.js";
 import type { BoardAction, BoardCard, BoardColumn, BoardSnapshot } from "./types.js";
 
 export const SPECBASE_MODULE_ID = "@awarebydefault/specbase";
@@ -88,8 +94,18 @@ export type CanonicalValidationResult =
 
 export interface SpecbasePublicApi {
 	readonly KANBAN_BOARD_VERSION: number;
+	readonly DIRECT_ACTION_CATALOG_VERSION: number;
 	readonly deriveKanbanBoard: (root: string) => Promise<unknown>;
 	readonly validateKanbanBoardSnapshot: (value: unknown, requestedVersion: number) => CanonicalValidationResult;
+	readonly getDirectActions: (options: {
+		readonly root?: string;
+		readonly workItemId: string;
+		readonly storeId?: string;
+	}) => Promise<DirectActionCatalog>;
+	readonly validateDirectActionIntent: (
+		value: unknown,
+		options?: { readonly root?: string },
+	) => Promise<DirectActionValidation>;
 	readonly resolveRegisteredStore: (input: { readonly id: string }) => Promise<{
 		readonly id: string;
 		readonly storeRoot: string;
@@ -104,6 +120,9 @@ export interface LiveBoardSource {
 	readonly id: string;
 	readonly label: string;
 	readonly root: string;
+	readonly storeId: string | null;
+	/** Re-prove that the selected nearest/registered identity still names this root. */
+	assertCurrent(): Promise<void>;
 	load(): Promise<BoardSnapshot>;
 }
 
@@ -129,13 +148,16 @@ export async function loadSpecbasePublicApi(importer: DynamicImport = dynamicImp
 	const module = loaded as Record<string, unknown>;
 	const complete =
 		typeof module.KANBAN_BOARD_VERSION === "number" &&
+		typeof module.DIRECT_ACTION_CATALOG_VERSION === "number" &&
 		hasFunction(module, "deriveKanbanBoard") &&
 		hasFunction(module, "validateKanbanBoardSnapshot") &&
+		hasFunction(module, "getDirectActions") &&
+		hasFunction(module, "validateDirectActionIntent") &&
 		hasFunction(module, "resolveRegisteredStore") &&
 		hasFunction(module, "resolveCurrentPlanningHomeSync");
 	if (!complete) {
 		throw new Error(
-			`${SPECBASE_MODULE_ID} is incompatible: expected the public kanban, validation, nearest-root, and registered-store APIs. Next step: install @awarebydefault/specbase@^2 and retry.`,
+			`${SPECBASE_MODULE_ID} is incompatible: expected the public kanban, direct-action, validation, nearest-root, and registered-store APIs. Next step: install a compatible @awarebydefault/specbase@^2 release and retry.`,
 		);
 	}
 	return module as unknown as SpecbasePublicApi;
@@ -154,11 +176,25 @@ export async function createLiveBoardSource(
 					storeRoot: api.resolveCurrentPlanningHomeSync({ startPath: cwd, allowImplicitRepoRoot: false }).root,
 				};
 	const label = request.kind === "store" ? `store ${resolved.id}` : `nearest store at ${resolved.storeRoot}`;
+	const assertCurrent = async (): Promise<void> => {
+		const current =
+			request.kind === "store"
+				? (await api.resolveRegisteredStore({ id: request.storeId })).storeRoot
+				: api.resolveCurrentPlanningHomeSync({ startPath: cwd, allowImplicitRepoRoot: false }).root;
+		if (current !== resolved.storeRoot) {
+			throw new Error(
+				`The selected Specbase source moved from '${resolved.storeRoot}' to '${current}'. Next step: reopen the board from the current source.`,
+			);
+		}
+	};
 	return {
 		id: request.kind === "store" ? resolved.id : `nearest:${resolved.storeRoot}`,
 		label,
 		root: resolved.storeRoot,
+		storeId: request.kind === "store" ? resolved.id : null,
+		assertCurrent,
 		async load() {
+			await assertCurrent();
 			const value = await api.deriveKanbanBoard(resolved.storeRoot);
 			const validation = api.validateKanbanBoardSnapshot(value, api.KANBAN_BOARD_VERSION);
 			if (!validation.valid) {
@@ -172,7 +208,26 @@ export async function createLiveBoardSource(
 						.join(" "),
 				);
 			}
-			return projectCanonicalSnapshot(validation.snapshot, resolved.id, label);
+			// Archived cards are terminal and add no usable dispatch affordance.
+			const workCards = Object.values(validation.snapshot.lanes)
+				.flat()
+				.filter((card) => card.kind !== "archive");
+			const catalogs = new Map(
+				await Promise.all(
+					workCards.map(
+						async (card) =>
+							[
+								card.id,
+								await api.getDirectActions({
+									workItemId: card.id,
+									...(request.kind === "store" ? { storeId: resolved.id } : { root: resolved.storeRoot }),
+								}),
+							] as const,
+					),
+				),
+			);
+			await assertCurrent();
+			return projectCanonicalSnapshot(validation.snapshot, resolved.id, label, catalogs);
 		},
 	};
 }
@@ -195,20 +250,21 @@ export function projectCanonicalSnapshot(
 	snapshot: CanonicalKanbanSnapshot,
 	sourceId: string,
 	sourceLabel: string,
+	catalogs: ReadonlyMap<string, DirectActionCatalog> = new Map(),
 ): BoardSnapshot {
 	const columns: BoardColumn[] = LANE_ORDER.map(([id, label]) => {
 		const cards = snapshot.lanes[id];
 		return {
 			id,
 			label,
-			cards: cards.map(projectCanonicalCard),
+			cards: cards.map((card) => projectCanonicalCard(card, catalogs.get(card.id))),
 			source: cards,
 		};
 	});
 	columns.push({
 		id: "specs",
 		label: "Accepted specs",
-		cards: snapshot.specs.map(projectCanonicalCard),
+		cards: snapshot.specs.map((card) => projectCanonicalCard(card)),
 		source: snapshot.specs,
 	});
 	const diagnosticSuffix = snapshot.diagnostics.length > 0 ? ` · ${snapshot.diagnostics.length} diagnostics` : "";
@@ -216,17 +272,24 @@ export function projectCanonicalSnapshot(
 		id: `specbase:${sourceId}`,
 		title: `${snapshot.project.name} · ${sourceLabel}${diagnosticSuffix}`,
 		columns,
-		notices: snapshot.diagnostics.map(formatDiagnostic),
+		notices: [
+			...snapshot.diagnostics.map(formatDiagnostic),
+			...Array.from(catalogs.values()).flatMap((catalog) =>
+				catalog.diagnostics.map(
+					(diagnostic) => `${diagnostic.code}: ${diagnostic.message} Next step: ${diagnostic.remediation}`,
+				),
+			),
+		],
 		source: snapshot,
 	};
 }
 
-function projectCanonicalCard(card: CanonicalWorkCard | CanonicalSpecCard): BoardCard {
+function projectCanonicalCard(card: CanonicalWorkCard | CanonicalSpecCard, catalog?: DirectActionCatalog): BoardCard {
 	return {
 		id: card.id,
 		title: card.title,
 		summary: canonicalCardSummary(card),
-		actions: canonicalActions(card),
+		actions: catalog ? canonicalActions(catalog) : [],
 		source: card,
 	};
 }
@@ -263,22 +326,21 @@ function progress(value: CanonicalProgress): string {
 	return `${value.completed}/${value.total}`;
 }
 
-function canonicalActions(card: CanonicalWorkCard | CanonicalSpecCard): BoardAction[] {
-	const actions = card.actions;
-	if (!Array.isArray(actions)) return [];
-	return actions.flatMap((action): BoardAction[] => {
-		if (!action || typeof action !== "object") return [];
-		const descriptor = action as Record<string, unknown>;
-		if (typeof descriptor.id !== "string" || typeof descriptor.label !== "string") return [];
-		return [
-			{
-				id: descriptor.id,
-				label: descriptor.label,
-				enabled: descriptor.enabled === true,
-				...(typeof descriptor.detail === "string" ? { detail: descriptor.detail } : {}),
-				source: action,
-			},
-		];
+function canonicalActions(catalog: DirectActionCatalog): BoardAction[] {
+	if (!catalog.target) return [];
+	return catalog.actions.map((descriptor: DirectActionDescriptor): BoardAction => {
+		const selection = createDirectActionSelection(catalog, descriptor);
+		return {
+			id: descriptor.actionId,
+			label: descriptor.label,
+			enabled: descriptor.availability === "available",
+			...(descriptor.blocker
+				? { detail: `${descriptor.blocker.message} Next step: ${descriptor.blocker.remediation}` }
+				: {}),
+			...(selection ? { selection } : {}),
+			// Preserve exact object identity; presentation fields never become authority.
+			source: descriptor,
+		};
 	});
 }
 

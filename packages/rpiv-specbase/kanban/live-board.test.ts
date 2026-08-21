@@ -7,6 +7,7 @@ import { LiveBoard, LiveBoardController } from "./live-board.js";
 import {
 	type CanonicalKanbanSnapshot,
 	createLiveBoardSource,
+	type LiveBoardSource,
 	projectCanonicalSnapshot,
 	type SpecbasePublicApi,
 } from "./live-source.js";
@@ -78,6 +79,7 @@ function canonicalSnapshot(options: { empty?: boolean; project?: string } = {}):
 function fakeApi(snapshot: CanonicalKanbanSnapshot = canonicalSnapshot()): SpecbasePublicApi {
 	return {
 		KANBAN_BOARD_VERSION: 3,
+		DIRECT_ACTION_CATALOG_VERSION: 1,
 		deriveKanbanBoard: vi.fn(async () => snapshot),
 		validateKanbanBoardSnapshot: vi.fn((value, version) =>
 			version === 3 && value === snapshot
@@ -88,6 +90,17 @@ function fakeApi(snapshot: CanonicalKanbanSnapshot = canonicalSnapshot()): Specb
 						diagnostics: [{ message: "Invalid snapshot", remediation: "Derive it again" }],
 					},
 		),
+		getDirectActions: vi.fn(async ({ workItemId, storeId }) => ({
+			version: 1,
+			target: { storeId: storeId ?? null, workItemId, position: "active" as const },
+			actions: [],
+			diagnostics: [],
+		})),
+		validateDirectActionIntent: vi.fn(async () => ({
+			accepted: false as const,
+			descriptor: null,
+			diagnostics: [],
+		})),
 		resolveRegisteredStore: vi.fn(async ({ id }) => ({ id, storeRoot: `/registered/${id}` })),
 		resolveCurrentPlanningHomeSync: vi.fn(() => ({ root: "/nearest/project" })),
 	};
@@ -95,6 +108,17 @@ function fakeApi(snapshot: CanonicalKanbanSnapshot = canonicalSnapshot()): Specb
 
 function boardSnapshot(id: string, columns: BoardSnapshot["columns"]): BoardSnapshot {
 	return { id, title: id, columns };
+}
+
+function testSource(load: LiveBoardSource["load"]): LiveBoardSource {
+	return {
+		id: "live",
+		label: "live",
+		root: "/live",
+		storeId: null,
+		assertCurrent: vi.fn(async () => {}),
+		load,
+	};
 }
 
 function deferred<T>() {
@@ -210,7 +234,7 @@ describe("live Specbase board", () => {
 	it("distinguishes initial failure from empty state and permits retry", async () => {
 		const recovered = boardSnapshot("recovered", [{ id: "one", label: "One", cards: [] }]);
 		const load = vi.fn().mockRejectedValueOnce(new Error("initial unavailable")).mockResolvedValueOnce(recovered);
-		const controller = new LiveBoardController({ id: "live", label: "live", root: "/live", load });
+		const controller = new LiveBoardController(testSource(load));
 		await controller.refresh();
 		expect(controller.state).toEqual({ kind: "failure", snapshot: null, error: "initial unavailable" });
 		await controller.refresh();
@@ -272,7 +296,7 @@ describe("live Specbase board", () => {
 		const board = new LiveBoard({
 			tui: { requestRender: vi.fn(), terminal: { rows: 40, columns: 120 } },
 			theme,
-			source: { id: "live", label: "live", root: "/live", load: () => load.promise },
+			source: testSource(() => load.promise),
 			done: vi.fn(),
 		});
 		load.resolve(projectCanonicalSnapshot(canonicalSnapshot(), "live", "live"));
@@ -292,12 +316,7 @@ describe("live Specbase board", () => {
 
 	it("invalidates pending refresh generations when disposed", async () => {
 		const pending = deferred<BoardSnapshot>();
-		const controller = new LiveBoardController({
-			id: "live",
-			label: "live",
-			root: "/live",
-			load: () => pending.promise,
-		});
+		const controller = new LiveBoardController(testSource(() => pending.promise));
 		const states: string[] = [];
 		controller.subscribe((state) => states.push(state.kind));
 		const refresh = controller.refresh();
@@ -312,7 +331,7 @@ describe("live Specbase board", () => {
 		const older = deferred<BoardSnapshot>();
 		const newer = deferred<BoardSnapshot>();
 		const load = vi.fn().mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
-		const controller = new LiveBoardController({ id: "live", label: "live", root: "/live", load });
+		const controller = new LiveBoardController(testSource(load));
 		const olderRefresh = controller.refresh();
 		const newerRefresh = controller.refresh();
 		newer.resolve(boardSnapshot("newer", [{ id: "one", label: "One", cards: [] }]));
@@ -338,7 +357,7 @@ describe("live Specbase board", () => {
 		const board = new LiveBoard({
 			tui: { requestRender: vi.fn(), terminal: { rows: 40, columns: 120 } },
 			theme,
-			source: { id: "live", label: "store live", root: "/live", load },
+			source: { ...testSource(load), label: "store live" },
 			done: vi.fn(),
 		});
 		expect(board.render(120).join("\n")).toContain("Loading store live");

@@ -275,7 +275,12 @@ export class FixtureBoard {
 		} else if (this.matches(data, "tui.select.up", [Key.up]) || data === "k") this.moveAction(-1);
 		else if (this.matches(data, "tui.select.down", [Key.down]) || data === "j") this.moveAction(1);
 		else if (this.isConfirm(data) && this.currentCard && this.currentAction?.enabled) {
-			this.close({ kind: "selected", cardId: this.currentCard.id, actionId: this.currentAction.id });
+			this.close({
+				kind: "selected",
+				cardId: this.currentCard.id,
+				actionId: this.currentAction.id,
+				...(this.currentAction.selection ? { selection: this.currentAction.selection } : {}),
+			});
 		} else if (this.isConfirm(data) && this.currentAction && !this.currentAction.enabled) {
 			this.changed();
 		}

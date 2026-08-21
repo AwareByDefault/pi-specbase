@@ -1,5 +1,12 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
+import {
+	ActionDispatchCoordinator,
+	type ActionDispatchFeedback,
+	ActionInFlightRegistry,
+	type CapabilityDispatcher,
+	CapabilityDispatcherRegistry,
+} from "./kanban/action-dispatch.js";
 import { FixtureBoard } from "./kanban/fixture-board.js";
 import { DEMO_BOARD_SNAPSHOT } from "./kanban/fixtures.js";
 import { LiveBoard } from "./kanban/live-board.js";
@@ -140,6 +147,18 @@ export async function presentLiveBoard(
 export interface SpecbaseKanbanDependencies {
 	readonly loadApi?: () => Promise<SpecbasePublicApi>;
 	readonly presentLive?: LiveKanbanPresenter;
+	/** Delivery owners register capability handlers here; this package never names their workflows. */
+	readonly capabilityDispatcher?: CapabilityDispatcher;
+}
+
+function notifyDispatchFeedback(ctx: ExtensionCommandContext, feedback: ActionDispatchFeedback): void {
+	const level =
+		feedback.phase === "rejected" || feedback.phase === "duplicate"
+			? "warning"
+			: feedback.phase === "accepted"
+				? "info"
+				: "info";
+	ctx.ui.notify(feedback.message, level);
 }
 
 export function registerSpecbaseKanbanExtension(
@@ -150,6 +169,8 @@ export function registerSpecbaseKanbanExtension(
 	const sessions = new BoardSessions();
 	const loadApi = dependencies.loadApi ?? loadSpecbasePublicApi;
 	const presentLive = dependencies.presentLive ?? presentLiveBoard;
+	const capabilities = dependencies.capabilityDispatcher ?? new CapabilityDispatcherRegistry();
+	const inFlight = new ActionInFlightRegistry();
 	pi.registerCommand(KANBAN_COMMAND, {
 		description: "Open the nearest, registered, or explicit demo Specbase kanban",
 		handler: async (args, ctx) => {
@@ -163,33 +184,74 @@ export function registerSpecbaseKanbanExtension(
 				return;
 			}
 
-			let intent: BoardIntent;
 			if (request.source === "demo") {
-				intent = await presentDemo(ctx, sessions);
-			} else {
-				let source: LiveBoardSource;
-				try {
-					const api = await loadApi();
-					source = await createLiveBoardSource(request.source, ctx.cwd, api);
-				} catch (error) {
-					const message = errorMessage(error);
-					const nextStep = /next step:/iu.test(message)
-						? message
-						: `${message} Next step: run specbase init in a project or pass --store <registered-id>.`;
-					ctx.ui.notify(nextStep, "error");
-					return;
+				const intent = await presentDemo(ctx, sessions);
+				if (intent.kind === "selected") {
+					ctx.ui.notify(
+						`Fixture intent selected: ${intent.cardId} / ${intent.actionId}. No action was dispatched.`,
+						"info",
+					);
+				} else {
+					ctx.ui.notify("Specbase kanban cancelled. No action was dispatched.", "info");
 				}
-				intent = await presentLive(ctx, sessions, source);
+				return;
 			}
 
-			if (intent.kind === "selected") {
-				const prefix = request.source === "demo" ? "Fixture" : "Specbase";
-				ctx.ui.notify(
-					`${prefix} intent selected: ${intent.cardId} / ${intent.actionId}. No action was dispatched.`,
-					"info",
-				);
-			} else {
-				ctx.ui.notify("Specbase kanban cancelled. No action was dispatched.", "info");
+			let source: LiveBoardSource;
+			let api: SpecbasePublicApi;
+			try {
+				api = await loadApi();
+				source = await createLiveBoardSource(request.source, ctx.cwd, api);
+			} catch (error) {
+				const message = errorMessage(error);
+				const nextStep = /next step:/iu.test(message)
+					? message
+					: `${message} Next step: run specbase init in a project or pass --store <registered-id>.`;
+				ctx.ui.notify(nextStep, "error");
+				return;
+			}
+
+			const coordinator = new ActionDispatchCoordinator({
+				validate: (selection) => api.validateDirectActionIntent(selection, { root: source.root }),
+				conversation: {
+					sendUserMessage: (invocation, options) => pi.sendUserMessage(invocation, options),
+				},
+				capabilities,
+				assertSource: () => source.assertCurrent(),
+				inFlight,
+				feedback: (feedback) => notifyDispatchFeedback(ctx, feedback),
+			});
+
+			while (true) {
+				const intent = await presentLive(ctx, sessions, source);
+				if (intent.kind === "cancelled") {
+					ctx.ui.notify("Specbase kanban cancelled. No action was dispatched.", "info");
+					return;
+				}
+				if (!intent.selection) {
+					ctx.ui.notify(
+						"The selected row has no canonical dispatch authority. Refresh and choose a live action.",
+						"warning",
+					);
+					continue;
+				}
+				if (
+					intent.selection.workItemId !== intent.cardId ||
+					intent.selection.actionId !== intent.actionId ||
+					intent.selection.storeId !== source.storeId
+				) {
+					ctx.ui.notify(
+						"The selected action no longer matches the presented card or store. Refresh and choose again.",
+						"warning",
+					);
+					continue;
+				}
+
+				// The presenter has resolved and disposed its overlay before either terminal adapter runs.
+				const outcome = await coordinator.dispatch(intent.selection);
+				if (outcome.status === "accepted" && outcome.route === "skill") return;
+				// Reopen on stale/refused selections and after autonomous acknowledgement.
+				// The live presenter performs a fresh canonical load on every opening.
 			}
 		},
 	});

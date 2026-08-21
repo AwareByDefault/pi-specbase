@@ -6,6 +6,22 @@ export default function (pi: ExtensionAPI): void {
 }
 
 export { parseKanbanRequest, registerSpecbaseKanbanExtension } from "./extension.js";
+export type {
+	ActionDispatchFeedback,
+	ActionDispatchOutcome,
+	CapabilityDispatcher,
+	CapabilityDispatchRequest,
+	CapabilityDispatchResult,
+	DirectActionCatalog,
+	DirectActionDescriptor,
+	DirectActionSelection,
+} from "./kanban/action-dispatch.js";
+export {
+	ActionDispatchCoordinator,
+	CapabilityDispatcherRegistry,
+	canonicalSkillInvocation,
+	createDirectActionSelection,
+} from "./kanban/action-dispatch.js";
 export { LiveBoard, LiveBoardController } from "./kanban/live-board.js";
 export {
 	createLiveBoardSource,

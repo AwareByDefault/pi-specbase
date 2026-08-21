@@ -8,7 +8,7 @@ A live board that cannot safely start work is still only an observer. The canoni
 - Dispatch conversational actions back into Pi as the exact canonical skill invocation.
 - Dispatch autonomous actions through an injected workflow dispatcher using the exact validated intent.
 - Revalidate intent at the dispatch boundary, reject stale or tampered selections, and never execute arbitrary command text from board data.
-- Present launch, rejection, completion acknowledgement, and refresh feedback in the board.
+- Present validation, queue/launch acknowledgement, rejection, and reopen-refresh feedback without claiming downstream completion.
 - Correlate autonomous launches with immutable trigger metadata needed by the next workflow-activity member.
 - Defer live workflow progress and the full delivery workflow.
 
@@ -26,7 +26,7 @@ A live board that cannot safely start work is still only an observer. The canoni
 
 | Covered truth | Planned type | Planned source | Intended proof |
 |---|---|---|---|
-| `authoritative-card-actions`, `exact-validated-intent-transport`, `conversational-action-dispatch`, `autonomous-action-dispatch`, `dispatch-feedback-and-refresh` | review | `behavioural` | Until implementation creates `packages/rpiv-specbase/kanban/action-dispatch.test.ts`, behavioural review judges catalog fidelity, revalidation, exact intent transport, both routes, feedback, and refresh. |
+| `authoritative-card-actions`, `exact-validated-intent-transport`, `conversational-action-dispatch`, `autonomous-action-dispatch`, `dispatch-feedback-and-refresh` | test | `packages/rpiv-specbase/kanban/action-dispatch.test.ts` | Injected fixtures establish catalog fidelity, revalidation, exact intent transport, both routes, feedback, and refresh without real side effects. |
 
 ## Impact
 

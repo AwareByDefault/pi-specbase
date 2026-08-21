@@ -1,8 +1,12 @@
+import type { DirectActionSelection } from "./action-dispatch.js";
+
 export interface BoardAction {
 	readonly id: string;
 	readonly label: string;
 	readonly enabled: boolean;
 	readonly detail?: string;
+	/** Frozen minimal canonical authority; absent for presentation-only fixtures. */
+	readonly selection?: DirectActionSelection;
 	/** Unmodified source descriptor retained for later dispatch adapters. */
 	readonly source?: unknown;
 }
@@ -47,6 +51,8 @@ export interface BoardSelectionIntent {
 	readonly kind: "selected";
 	readonly cardId: string;
 	readonly actionId: string;
+	/** Present only when a canonical live adapter supplied dispatch authority. */
+	readonly selection?: DirectActionSelection;
 }
 
 export interface BoardCancelledIntent {
