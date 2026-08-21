@@ -1,8 +1,8 @@
 bindings:
-  rpiv-specbase-boundary-review:
-    type: review
+  rpiv-specbase-boundary-test:
+    type: test
     covers:
       - pi-integration-ownership
       - canonical-specbase-semantics-remain-external
       - source-neutral-renderer-boundary
-    source: architectural
+    source: packages/rpiv-specbase/extension.test.ts

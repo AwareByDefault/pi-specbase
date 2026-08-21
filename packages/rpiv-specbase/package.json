@@ -1,0 +1,43 @@
+{
+	"name": "@juicesharp/rpiv-specbase",
+	"version": "2.6.4",
+	"description": "Fixture-backed Specbase kanban for Pi.",
+	"keywords": [
+		"pi-package",
+		"pi-extension",
+		"rpiv",
+		"specbase",
+		"kanban"
+	],
+	"type": "module",
+	"license": "MIT",
+	"author": "juicesharp",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/juicesharp/rpiv-mono.git",
+		"directory": "packages/rpiv-specbase"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"test": "vitest run"
+	},
+	"files": [
+		"index.ts",
+		"extension.ts",
+		"kanban/",
+		"LICENSE",
+		"README.md",
+		"!**/*.test.ts"
+	],
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*"
+	}
+}
