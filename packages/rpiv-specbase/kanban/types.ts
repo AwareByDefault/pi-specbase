@@ -15,6 +15,8 @@ export interface BoardCard {
 	readonly id: string;
 	readonly title: string;
 	readonly summary: string;
+	/** Optional live activity badge rendered on the card row and in detail. */
+	readonly activity?: string;
 	readonly actions: readonly BoardAction[];
 	/** Unmodified source card retained across the presentation seam. */
 	readonly source?: unknown;

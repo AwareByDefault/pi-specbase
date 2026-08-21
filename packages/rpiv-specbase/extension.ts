@@ -19,6 +19,11 @@ import {
 	type SpecbasePublicApi,
 } from "./kanban/live-source.js";
 import type { BoardIntent } from "./kanban/types.js";
+import {
+	getWorkflowActivityBridge,
+	registerWorkflowActivityBridgeHook,
+	type WorkflowActivityBridge,
+} from "./workflow-bridge.js";
 
 export const KANBAN_COMMAND = "spcb:kanban";
 export const KANBAN_USAGE = "Usage: /spcb:kanban [--demo | --store <registered-id>]";
@@ -149,6 +154,8 @@ export interface SpecbaseKanbanDependencies {
 	readonly presentLive?: LiveKanbanPresenter;
 	/** Delivery owners register capability handlers here; this package never names their workflows. */
 	readonly capabilityDispatcher?: CapabilityDispatcher;
+	/** Optional public-RPIV observer; false keeps the board fully activity-unaware. */
+	readonly workflowActivityBridge?: WorkflowActivityBridge | false;
 }
 
 function notifyDispatchFeedback(ctx: ExtensionCommandContext, feedback: ActionDispatchFeedback): void {
@@ -167,6 +174,10 @@ export function registerSpecbaseKanbanExtension(
 	dependencies: SpecbaseKanbanDependencies = {},
 ): BoardSessions {
 	const sessions = new BoardSessions();
+	const workflowActivity =
+		dependencies.workflowActivityBridge === false
+			? undefined
+			: (dependencies.workflowActivityBridge ?? getWorkflowActivityBridge());
 	const loadApi = dependencies.loadApi ?? loadSpecbasePublicApi;
 	const presentLive = dependencies.presentLive ?? presentLiveBoard;
 	const capabilities = dependencies.capabilityDispatcher ?? new CapabilityDispatcherRegistry();
@@ -201,7 +212,12 @@ export function registerSpecbaseKanbanExtension(
 			let api: SpecbasePublicApi;
 			try {
 				api = await loadApi();
-				source = await createLiveBoardSource(request.source, ctx.cwd, api);
+				source = await createLiveBoardSource(
+					request.source,
+					ctx.cwd,
+					api,
+					workflowActivity ? (root, storeId) => workflowActivity.board(root, storeId) : undefined,
+				);
 			} catch (error) {
 				const message = errorMessage(error);
 				const nextStep = /next step:/iu.test(message)
@@ -256,5 +272,6 @@ export function registerSpecbaseKanbanExtension(
 		},
 	});
 	pi.on("session_shutdown", () => sessions.dispose());
+	if (workflowActivity) registerWorkflowActivityBridgeHook(pi, workflowActivity);
 	return sessions;
 }

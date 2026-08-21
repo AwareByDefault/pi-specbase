@@ -92,6 +92,7 @@ export class LiveBoard {
 	readonly controller: LiveBoardController;
 	private readonly board: FixtureBoard;
 	private readonly subscription: LiveBoardSubscription;
+	private readonly activitySubscription: LiveBoardSubscription | undefined;
 	private disposed = false;
 
 	constructor(private readonly options: LiveBoardOptions) {
@@ -110,8 +111,13 @@ export class LiveBoard {
 			},
 		});
 		this.subscription = this.controller.subscribe((state) => {
-			if (state.snapshot) this.board.replaceSnapshot(state.snapshot);
+			if (state.snapshot)
+				this.board.replaceSnapshot(options.source.activity?.compose(state.snapshot) ?? state.snapshot);
 			this.board.setStatus(liveStatus(state, options.source.label));
+		});
+		this.activitySubscription = options.source.activity?.subscribe(() => {
+			const snapshot = this.controller.state.snapshot;
+			if (snapshot) this.board.replaceSnapshot(options.source.activity!.compose(snapshot));
 		});
 		void this.controller.refresh();
 	}
@@ -140,6 +146,7 @@ export class LiveBoard {
 		if (this.disposed) return;
 		this.disposed = true;
 		this.subscription.dispose();
+		this.activitySubscription?.dispose();
 		this.controller.dispose();
 		this.board.dispose();
 		this.options.onDispose?.();

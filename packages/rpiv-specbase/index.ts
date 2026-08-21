@@ -29,3 +29,17 @@ export {
 	projectCanonicalSnapshot,
 } from "./kanban/live-source.js";
 export type { BoardIntent, BoardSelectionIntent, BoardSnapshot } from "./kanban/types.js";
+export type { WorkflowActivity, WorkflowActivityStatus, WorkflowCorrelation } from "./kanban/workflow-activity.js";
+export {
+	composeWorkflowActivity,
+	formatWorkflowActivity,
+	parseWorkflowCorrelation,
+	WorkflowActivityStore,
+} from "./kanban/workflow-activity.js";
+export type { PublicWorkflowReaders, WorkflowActivityBoardAdapter } from "./workflow-bridge.js";
+export {
+	getWorkflowActivityBridge,
+	getWorkflowActivityStore,
+	registerWorkflowActivityBridgeHook,
+	WorkflowActivityBridge,
+} from "./workflow-bridge.js";

@@ -1,3 +1,4 @@
+import type { WorkflowActivityBoardAdapter } from "../workflow-bridge.js";
 import {
 	createDirectActionSelection,
 	type DirectActionCatalog,
@@ -121,6 +122,7 @@ export interface LiveBoardSource {
 	readonly label: string;
 	readonly root: string;
 	readonly storeId: string | null;
+	readonly activity?: WorkflowActivityBoardAdapter;
 	/** Re-prove that the selected nearest/registered identity still names this root. */
 	assertCurrent(): Promise<void>;
 	load(): Promise<BoardSnapshot>;
@@ -167,6 +169,7 @@ export async function createLiveBoardSource(
 	request: LiveSourceRequest,
 	cwd: string,
 	api: SpecbasePublicApi,
+	activityFor?: (root: string, storeId: string | null) => WorkflowActivityBoardAdapter,
 ): Promise<LiveBoardSource> {
 	const resolved =
 		request.kind === "store"
@@ -176,6 +179,7 @@ export async function createLiveBoardSource(
 					storeRoot: api.resolveCurrentPlanningHomeSync({ startPath: cwd, allowImplicitRepoRoot: false }).root,
 				};
 	const label = request.kind === "store" ? `store ${resolved.id}` : `nearest store at ${resolved.storeRoot}`;
+	const activity = activityFor?.(resolved.storeRoot, request.kind === "store" ? resolved.id : null);
 	const assertCurrent = async (): Promise<void> => {
 		const current =
 			request.kind === "store"
@@ -192,6 +196,7 @@ export async function createLiveBoardSource(
 		label,
 		root: resolved.storeRoot,
 		storeId: request.kind === "store" ? resolved.id : null,
+		...(activity ? { activity } : {}),
 		assertCurrent,
 		async load() {
 			await assertCurrent();
@@ -227,6 +232,7 @@ export async function createLiveBoardSource(
 				),
 			);
 			await assertCurrent();
+			await activity?.hydrate();
 			return projectCanonicalSnapshot(validation.snapshot, resolved.id, label, catalogs);
 		},
 	};

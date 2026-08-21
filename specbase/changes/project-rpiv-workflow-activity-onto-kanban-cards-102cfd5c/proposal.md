@@ -29,8 +29,8 @@ Autonomous actions become opaque once launched unless users leave the kanban and
 
 | Covered truth | Planned type | Planned source | Intended proof |
 |---|---|---|---|
-| `correlated-live-workflow-activity`, `exact-workflow-outcome-presentation`, `resumable-run-identity`, `reopened-board-activity-recap` | review | `behavioural` | Until implementation creates `packages/rpiv-specbase/kanban/workflow-activity.test.ts`, behavioural review judges correlation, terminal display, resume protection, and reopen hydration. |
-| `workflow-lifecycle-observer-instrument`, `structured-trigger-correlation-instrument`, `public-recap-hydration-instrument` | review | `enforcement` | Until implementation creates `packages/rpiv-specbase/workflow-bridge.test.ts`, enforcement review judges one observation-only listener, structured correlation, and public-reader-only hydration. |
+| `correlated-live-workflow-activity`, `exact-workflow-outcome-presentation`, `resumable-run-identity`, `reopened-board-activity-recap` | test | `packages/rpiv-specbase/kanban/workflow-activity.test.ts` | Fixtures establish correlation, terminal display, resume protection, bounded overlays, and reopen hydration. |
+| `workflow-lifecycle-observer-instrument`, `structured-trigger-correlation-instrument`, `public-recap-hydration-instrument` | test | `packages/rpiv-specbase/workflow-bridge.test.ts` | Fixtures establish one fail-soft observation listener, structured correlation, public-reader-only hydration, and truthful interruption. |
 
 ## Impact
 

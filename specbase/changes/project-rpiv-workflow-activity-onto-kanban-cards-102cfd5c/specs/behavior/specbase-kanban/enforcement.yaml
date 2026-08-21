@@ -1,9 +1,9 @@
 bindings:
-  card-workflow-activity-review:
-    type: review
+  card-workflow-activity-test:
+    type: test
     covers:
       - correlated-live-workflow-activity
       - exact-workflow-outcome-presentation
       - resumable-run-identity
       - reopened-board-activity-recap
-    source: behavioural
+    source: packages/rpiv-specbase/kanban/workflow-activity.test.ts

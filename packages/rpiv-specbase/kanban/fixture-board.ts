@@ -136,7 +136,7 @@ export class FixtureBoard {
 					if (!card) return this.cell("", columnWidth, "dim");
 					const focusedCard = focusedColumn && this.cardIndex === index;
 					return this.cell(
-						`${focusedCard ? "›" : " "} ${card.title}`,
+						`${focusedCard ? "›" : " "} ${card.activity ? `${card.activity} · ` : ""}${card.title}`,
 						columnWidth,
 						focusedCard ? "accent" : "text",
 					);
