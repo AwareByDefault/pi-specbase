@@ -55,6 +55,7 @@ import { armBashWatchdog, type BashWatchdog } from "./bash-timeout.js";
 import { createLaneRelayUiContext } from "./lane-relay-ui.js";
 import { createLaneSessionView } from "./lane-streaming.js";
 import { harvestToolDefs } from "./lane-tool-defs.js";
+import type { WorkflowChildToolPolicy } from "./local-delivery-tool-policy.js";
 import {
 	captureFinalSnapshot,
 	getLane,
@@ -171,6 +172,8 @@ export interface SdkWorkflowHostDeps {
 	 *  verbatim to `SessionManager.create(cwd, dir)` / `SessionManager.open(file, dir)`. */
 	childSessionsDir: string;
 	maxConcurrency: number;
+	/** Optional per-run child tool boundary. Undefined preserves existing workflows. */
+	toolPolicy?: WorkflowChildToolPolicy;
 }
 
 /**
@@ -275,7 +278,8 @@ export class SdkWorkflowHost implements WorkflowHostContext {
 		}
 
 		const childEventBus = createEventBus();
-		const resourceLoader = await this.buildChildResourceLoader(childEventBus);
+		const toolPolicy = this.deps.toolPolicy;
+		const resourceLoader = await this.buildChildResourceLoader(childEventBus, toolPolicy?.additionalSkillPaths);
 		const { session } = await createAgentSession({
 			cwd: this.cwd,
 			// Borrow ONLY the registry; authStorage is still defaulted per child
@@ -286,6 +290,16 @@ export class SdkWorkflowHost implements WorkflowHostContext {
 			sessionManager: this.createChildSessionManager(options),
 			model: this.resolveModelKey(options.model?.model),
 			thinkingLevel: options.model?.thinking,
+			...(toolPolicy
+				? {
+						tools: [...toolPolicy.allowedToolNames],
+						excludeTools: [...toolPolicy.excludedToolNames],
+						// SDK custom definitions override the same-named built-ins. This is
+						// the public createAgentSession seam; baseToolsOverride belongs to
+						// AgentSession's lower-level constructor and is ignored by the SDK.
+						customTools: [...toolPolicy.createToolDefinitions(this.cwd)],
+					}
+				: {}),
 		});
 
 		// Harvest the child's full tool-definition registry (renderers included) into
@@ -381,12 +395,16 @@ export class SdkWorkflowHost implements WorkflowHostContext {
 	 * `LoadExtensionsResult` carries a shared `runtime`, so reusing one loader
 	 * across concurrent children would cross-wire their extension runtimes.
 	 */
-	private async buildChildResourceLoader(eventBus: EventBus): Promise<DefaultResourceLoader> {
+	private async buildChildResourceLoader(
+		eventBus: EventBus,
+		additionalSkillPaths: readonly string[] = [],
+	): Promise<DefaultResourceLoader> {
 		const agentDir = getAgentDir();
 		const resourceLoader = new DefaultResourceLoader({
 			cwd: this.cwd,
 			agentDir,
 			settingsManager: SettingsManager.create(this.cwd, agentDir),
+			additionalSkillPaths: [...additionalSkillPaths],
 			extensionsOverride: withoutAmbientExtensions,
 			// A PER-CHILD eventBus: the resource loader stores this (`this.eventBus`),
 			// hands it to every loaded extension factory (`loadExtensionFromFactory(…, eventBus)`

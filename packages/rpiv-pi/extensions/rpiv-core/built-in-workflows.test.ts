@@ -502,7 +502,7 @@ describe("truncated reply (stopReason=length) must not record as completed", () 
 
 	const readStages = (cwd: string): Array<Record<string, unknown>> => {
 		const dir = join(cwd, ".rpiv", "workflows", "runs");
-		const files = readdirSync(dir);
+		const files = readdirSync(dir).filter((file) => file.endsWith(".jsonl"));
 		expect(files).toHaveLength(1);
 		const lines = readFileSync(join(dir, files[0]!), "utf-8").trim().split("\n");
 		return lines.slice(1).map((l) => JSON.parse(l));
@@ -668,7 +668,7 @@ describe("phase fanout rows preserve both stage name (record key) and skill body
 
 	const readRows = (cwd: string): Array<Record<string, unknown>> => {
 		const dir = join(cwd, ".rpiv", "workflows", "runs");
-		const files = readdirSync(dir);
+		const files = readdirSync(dir).filter((file) => file.endsWith(".jsonl"));
 		expect(files).toHaveLength(1);
 		const lines = readFileSync(join(dir, files[0]!), "utf-8").trim().split("\n");
 		return lines.map((l) => JSON.parse(l));
