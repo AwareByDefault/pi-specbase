@@ -52,8 +52,13 @@ export {
 	DRAFT_PR_WORKFLOW_NAME,
 } from "./workflows/draft-pr-contracts.js";
 export {
+	READY_TO_REVIEW_CAPABILITY_ID,
+	READY_TO_REVIEW_WORKFLOW_NAME,
+} from "./workflows/ready-to-review-contracts.js";
+export {
 	createDraftPrCapabilityHandler,
 	createLocalDeliveryCapabilityHandler,
+	createReadyToReviewCapabilityHandler,
 	createSpecbaseCapabilityDispatcher,
 	ensureSpecbaseLocalDeliveryRuntime,
 } from "./workflows/register.js";

@@ -15,6 +15,7 @@ import {
 
 export const SPECBASE_LOCAL_DELIVERY_WORKFLOW = "specbase-local-delivery";
 export const SPECBASE_DRAFT_PR_WORKFLOW = "specbase-draft-pr-delivery";
+export const SPECBASE_READY_TO_REVIEW_WORKFLOW = "specbase-ready-to-review";
 const BUNDLED_SPECBASE_SKILLS = resolve(dirname(fileURLToPath(import.meta.url)), "../../../rpiv-specbase/skills");
 
 export const LOCAL_DELIVERY_ALLOWED_TOOL_NAMES: readonly string[] = Object.freeze([
@@ -106,10 +107,69 @@ type SdkCustomTools = NonNullable<CreateAgentSessionOptions["customTools"]>;
 
 export interface WorkflowChildToolPolicy {
 	readonly allowedToolNames: readonly string[];
+	readonly allowedToolNamesForPrompt?: (prompt: string) => readonly string[];
 	readonly excludedToolNames: readonly string[];
 	readonly additionalSkillPaths: readonly string[];
 	/** SDK custom definitions override same-named built-ins in AgentSession. */
-	readonly createToolDefinitions: (cwd: string) => SdkCustomTools;
+	readonly createToolDefinitions: (cwd: string, prompt?: string) => SdkCustomTools;
+}
+
+type ReadyPhase = "evidence" | "implementation" | "refactor" | "artifact" | "panel" | "read-only";
+
+function readyPhase(prompt: string): ReadyPhase {
+	if (/specbase-author-red-evidence|author-evidence/iu.test(prompt)) return "evidence";
+	if (/specbase-implement-green|\bimplementation\b/iu.test(prompt)) return "implementation";
+	if (/specbase-review-panel/iu.test(prompt)) return "panel";
+	if (/specbase-refactor-decision|refactor-decision/iu.test(prompt)) return "artifact";
+	if (/specbase-(?:panel-local-fix|green-refactor)|panel-fix|\brefactor\b/iu.test(prompt)) return "refactor";
+	if (/specbase-(?:delivery-readiness|ready-review-readiness)|panel-disposition|spec-review/iu.test(prompt))
+		return "artifact";
+	return "read-only";
+}
+
+async function readyMutableScope(
+	root: string,
+	ownerId?: string,
+): Promise<{ evidence: Set<string>; production: string[]; panelMetadata?: string }> {
+	if (!ownerId) return { evidence: new Set(), production: [] };
+	try {
+		const ready = JSON.parse(
+			await readFile(
+				resolve(root, ".rpiv", "artifacts", "specbase-ready-to-review", ownerId, "ready-context.json"),
+				"utf8",
+			),
+		) as { deliveryContextPath?: unknown; productionRoots?: unknown };
+		if (typeof ready.deliveryContextPath !== "string") return { evidence: new Set(), production: [] };
+		const delivery = JSON.parse(await readFile(ready.deliveryContextPath, "utf8")) as {
+			evidenceUnits?: readonly { paths?: readonly string[] }[];
+		};
+		let panelMetadata: string | undefined;
+		try {
+			const remote = JSON.parse(
+				await readFile(
+					resolve(root, ".rpiv", "artifacts", "specbase-ready-to-review", ownerId, "remote-context.json"),
+					"utf8",
+				),
+			) as { changeMetadataPath?: unknown };
+			if (typeof remote.changeMetadataPath === "string")
+				panelMetadata = relative(resolve(root), resolve(remote.changeMetadataPath)).split(sep).join("/");
+		} catch {
+			// Remote context is created immediately before panel; absence stays fail-closed.
+		}
+		return {
+			evidence: new Set(
+				(delivery.evidenceUnits ?? [])
+					.flatMap((unit) => unit.paths ?? [])
+					.map((path) => relative(resolve(root), resolve(root, path)).split(sep).join("/")),
+			),
+			production: Array.isArray(ready.productionRoots)
+				? ready.productionRoots.filter((path): path is string => typeof path === "string")
+				: [],
+			...(panelMetadata ? { panelMetadata } : {}),
+		};
+	} catch {
+		return { evidence: new Set(), production: [] };
+	}
 }
 
 async function guardedPath(
@@ -118,6 +178,10 @@ async function guardedPath(
 	mutable: boolean,
 	ownerId?: string,
 	artifactKind = "specbase-local-delivery",
+	phase: ReadyPhase = "implementation",
+	evidencePaths: ReadonlySet<string> = new Set(),
+	productionRoots: readonly string[] = [],
+	panelMetadata?: string,
 ): Promise<string> {
 	const root = resolve(rootInput);
 	const absolute = isAbsolute(path) ? resolve(path) : resolve(root, path);
@@ -128,11 +192,39 @@ async function guardedPath(
 	if (mutable && (rel === ".git" || rel.startsWith(`.git${sep}`))) {
 		throw new LocalDeliveryToolPolicyError("Git control mutation", path);
 	}
+	if (mutable && artifactKind === "specbase-ready-to-review") {
+		const normalized = rel.split(sep).join("/");
+		const ownerArtifact = normalized.startsWith(`.rpiv/artifacts/${artifactKind}/${ownerId ?? "<none>"}/`);
+		if (phase === "read-only") throw new LocalDeliveryToolPolicyError("read-only ready-to-review phase", path);
+		if (phase === "artifact" && !ownerArtifact)
+			throw new LocalDeliveryToolPolicyError("artifact-only ready-to-review phase", path);
+		if (phase === "panel" && normalized !== panelMetadata && !ownerArtifact)
+			throw new LocalDeliveryToolPolicyError("panel metadata-only mutation", path);
+		if (phase === "evidence" && !evidencePaths.has(normalized) && !ownerArtifact)
+			throw new LocalDeliveryToolPolicyError("undeclared evidence mutation", path);
+		if ((phase === "implementation" || phase === "refactor") && evidencePaths.has(normalized))
+			throw new LocalDeliveryToolPolicyError("frozen evidence mutation", path);
+		if (
+			(rel === "specbase" || rel.startsWith(`specbase${sep}`)) &&
+			!(phase === "panel" && normalized === panelMetadata)
+		)
+			throw new LocalDeliveryToolPolicyError("frozen planning artifact mutation", path);
+		if (
+			(phase === "implementation" || phase === "refactor") &&
+			!ownerArtifact &&
+			!productionRoots.some((root) => normalized === root || normalized.startsWith(`${root}/`))
+		)
+			throw new LocalDeliveryToolPolicyError("path outside frozen production scope", path);
+	}
 	if (mutable && (rel === ".rpiv" || rel.startsWith(`.rpiv${sep}`))) {
 		const normalized = rel.split(sep).join("/");
 		const owner = ownerId?.replaceAll(/[^A-Za-z0-9-]/gu, "");
 		const outputNames =
-			artifactKind === "specbase-draft-pr-delivery" ? "panel-disposition" : "readiness|local-review";
+			artifactKind === "specbase-draft-pr-delivery"
+				? "panel-disposition"
+				: artifactKind === "specbase-ready-to-review"
+					? "readiness|panel-disposition|refactor-decision"
+					: "readiness|local-review";
 		const permittedArtifact =
 			owner !== undefined &&
 			new RegExp(`^\\.rpiv/artifacts/${artifactKind}/${owner}(?:/(?:${outputNames})\\.json)?$`, "u").test(
@@ -171,9 +263,14 @@ function denialRecorder(
 function localDeliveryPolicy(
 	root: string,
 	ownerId?: string,
-	mode: "local" | "draft" = "local",
+	mode: "local" | "draft" | "ready" = "local",
 ): WorkflowChildToolPolicy {
-	const artifactKind = mode === "draft" ? "specbase-draft-pr-delivery" : "specbase-local-delivery";
+	const artifactKind =
+		mode === "draft"
+			? "specbase-draft-pr-delivery"
+			: mode === "ready"
+				? "specbase-ready-to-review"
+				: "specbase-local-delivery";
 	const recordDenied = denialRecorder(root, ownerId, artifactKind);
 	const allowedToolNames =
 		mode === "draft"
@@ -181,10 +278,37 @@ function localDeliveryPolicy(
 			: LOCAL_DELIVERY_ALLOWED_TOOL_NAMES;
 	return Object.freeze({
 		allowedToolNames,
+		...(mode === "ready"
+			? {
+					allowedToolNamesForPrompt: (prompt: string) =>
+						/specbase-review-panel/iu.test(prompt)
+							? Object.freeze([...LOCAL_DELIVERY_ALLOWED_TOOL_NAMES, "Agent", "todo"])
+							: LOCAL_DELIVERY_ALLOWED_TOOL_NAMES,
+				}
+			: {}),
 		excludedToolNames: LOCAL_DELIVERY_EXCLUDED_TOOL_NAMES,
 		additionalSkillPaths: [BUNDLED_SPECBASE_SKILLS],
-		createToolDefinitions: (cwd: string) => {
+		createToolDefinitions: (cwd: string, prompt = "") => {
 			const local = createLocalBashOperations();
+			const phase = mode === "ready" ? readyPhase(prompt) : "implementation";
+			const scope =
+				mode === "ready"
+					? readyMutableScope(root, ownerId)
+					: Promise.resolve({ evidence: new Set<string>(), production: ["."], panelMetadata: undefined });
+			const guard = async (path: string, mutable: boolean) => {
+				const allowed = await scope;
+				return guardedPath(
+					root,
+					path,
+					mutable,
+					ownerId,
+					artifactKind,
+					phase,
+					allowed.evidence,
+					allowed.production,
+					allowed.panelMetadata,
+				);
+			};
 			const bash = createBashToolDefinition(cwd, {
 				operations: {
 					exec: (command, commandCwd, options) => {
@@ -199,46 +323,42 @@ function localDeliveryPolicy(
 				bash,
 				createReadToolDefinition(cwd, {
 					operations: {
-						readFile: async (path) => readFile(await guardedPath(root, path, false, ownerId, artifactKind)),
-						access: async (path) => access(await guardedPath(root, path, false, ownerId, artifactKind)),
+						readFile: async (path) => readFile(await guard(path, false)),
+						access: async (path) => access(await guard(path, false)),
 					},
 				}),
 				createGrepToolDefinition(cwd, {
 					operations: {
-						isDirectory: async (path) =>
-							(await stat(await guardedPath(root, path, false, ownerId, artifactKind))).isDirectory(),
-						readFile: async (path) =>
-							readFile(await guardedPath(root, path, false, ownerId, artifactKind), "utf8"),
+						isDirectory: async (path) => (await stat(await guard(path, false))).isDirectory(),
+						readFile: async (path) => readFile(await guard(path, false), "utf8"),
 					},
 				}),
 				createLsToolDefinition(cwd, {
 					operations: {
 						exists: async (path) => {
 							try {
-								await access(await guardedPath(root, path, false, ownerId, artifactKind));
+								await access(await guard(path, false));
 								return true;
 							} catch {
 								return false;
 							}
 						},
-						stat: async (path) => stat(await guardedPath(root, path, false, ownerId, artifactKind)),
-						readdir: async (path) => readdir(await guardedPath(root, path, false, ownerId, artifactKind)),
+						stat: async (path) => stat(await guard(path, false)),
+						readdir: async (path) => readdir(await guard(path, false)),
 					},
 				}),
 				createEditToolDefinition(cwd, {
 					operations: {
-						readFile: async (path) => readFile(await guardedPath(root, path, true, ownerId, artifactKind)),
-						writeFile: async (path, content) =>
-							writeFile(await guardedPath(root, path, true, ownerId, artifactKind), content),
-						access: async (path) => access(await guardedPath(root, path, true, ownerId, artifactKind)),
+						readFile: async (path) => readFile(await guard(path, true)),
+						writeFile: async (path, content) => writeFile(await guard(path, true), content),
+						access: async (path) => access(await guard(path, true)),
 					},
 				}),
 				createWriteToolDefinition(cwd, {
 					operations: {
-						writeFile: async (path, content) =>
-							writeFile(await guardedPath(root, path, true, ownerId, artifactKind), content),
+						writeFile: async (path, content) => writeFile(await guard(path, true), content),
 						mkdir: async (path) => {
-							await mkdir(await guardedPath(root, path, true, ownerId, artifactKind), { recursive: true });
+							await mkdir(await guard(path, true), { recursive: true });
 						},
 					},
 				}),
@@ -252,7 +372,12 @@ export function resolveWorkflowChildToolPolicy(
 	input?: string,
 	root = process.cwd(),
 ): WorkflowChildToolPolicy | undefined {
-	if (workflow !== SPECBASE_LOCAL_DELIVERY_WORKFLOW && workflow !== SPECBASE_DRAFT_PR_WORKFLOW) return undefined;
+	if (
+		workflow !== SPECBASE_LOCAL_DELIVERY_WORKFLOW &&
+		workflow !== SPECBASE_DRAFT_PR_WORKFLOW &&
+		workflow !== SPECBASE_READY_TO_REVIEW_WORKFLOW
+	)
+		return undefined;
 	let ownerId: string | undefined;
 	try {
 		const parsed = JSON.parse(input ?? "") as { ownerId?: unknown };
@@ -261,5 +386,13 @@ export function resolveWorkflowChildToolPolicy(
 		// Capture performs schema validation and will reject malformed input. The
 		// policy still installs fail-closed tools without a denial artifact path.
 	}
-	return localDeliveryPolicy(root, ownerId, workflow === SPECBASE_DRAFT_PR_WORKFLOW ? "draft" : "local");
+	return localDeliveryPolicy(
+		root,
+		ownerId,
+		workflow === SPECBASE_DRAFT_PR_WORKFLOW
+			? "draft"
+			: workflow === SPECBASE_READY_TO_REVIEW_WORKFLOW
+				? "ready"
+				: "local",
+	);
 }

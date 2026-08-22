@@ -1,5 +1,8 @@
 export type DirectActionDispatchKind = "skill" | "capability";
-export type DirectActionCapabilityId = "specbase.local-delivery" | "specbase.draft-pr-delivery";
+export type DirectActionCapabilityId =
+	| "specbase.local-delivery"
+	| "specbase.draft-pr-delivery"
+	| "specbase.ready-to-review";
 
 export interface DirectActionBlocker {
 	readonly code: string;
@@ -324,7 +327,8 @@ function isSupportedCapabilityDescriptor(
 	if (descriptor.dispatch.kind !== "capability") return false;
 	if (
 		descriptor.dispatch.capabilityId !== "specbase.local-delivery" &&
-		descriptor.dispatch.capabilityId !== "specbase.draft-pr-delivery"
+		descriptor.dispatch.capabilityId !== "specbase.draft-pr-delivery" &&
+		descriptor.dispatch.capabilityId !== "specbase.ready-to-review"
 	)
 		return false;
 	const args = descriptor.dispatch.arguments;

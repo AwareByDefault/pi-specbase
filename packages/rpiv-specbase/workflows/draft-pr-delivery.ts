@@ -11,6 +11,7 @@ import type {
 	RemoteHeadResult,
 } from "./draft-pr-contracts.js";
 import { gitDirtyPaths } from "./local-delivery.js";
+import type { ReadyRemoteContext } from "./ready-to-review-contracts.js";
 
 const draftRunIds = new Map<string, string>();
 
@@ -131,13 +132,75 @@ export function captureDraftPrContext(
 	};
 }
 
+export function captureReadyPrContext(input: {
+	ownerId: string;
+	runId: string;
+	authorization: {
+		catalogVersion: number;
+		actionId: string;
+		capabilityId: "specbase.ready-to-review";
+		changeId: string;
+		storeId: string | null;
+		root: string;
+	};
+	commits: readonly string[];
+}): ReadyRemoteContext {
+	const root = resolve(input.authorization.root);
+	const branch = git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+	if (!branch) throw new Error("Ready-to-review delivery requires an attached local branch.");
+	const startHead = git(root, ["rev-parse", "HEAD"]);
+	const baselineDirtyPaths = gitDirtyPaths(root);
+	if (baselineDirtyPaths.length > 0)
+		throw new Error(`Ready-to-review delivery requires a clean tree: ${baselineDirtyPaths.join(", ")}`);
+	const remotes = git(root, ["remote"]).split(/\s+/u).filter(Boolean);
+	if (remotes.length !== 1) throw new Error("Ready-to-review delivery requires exactly one configured remote.");
+	const remote = remotes[0]!;
+	const repository = githubRepository(git(root, ["remote", "get-url", remote]));
+	const baseRef = git(root, ["symbolic-ref", `refs/remotes/${remote}/HEAD`], true);
+	if (!baseRef) throw new Error("Ready-to-review delivery requires an unambiguous remote default branch.");
+	const base = baseRef.replace(`refs/remotes/${remote}/`, "");
+	const statusResult = spawnSync(
+		"specbase",
+		[
+			"status",
+			"--change",
+			input.authorization.changeId,
+			"--json",
+			...(input.authorization.storeId ? ["--store", input.authorization.storeId] : []),
+		],
+		{ cwd: root, encoding: "utf8", timeout: 30_000 },
+	);
+	if (statusResult.error || statusResult.status !== 0)
+		throw statusResult.error ?? new Error("Specbase status failed during ready-to-review capture.");
+	const status = JSON.parse(statusResult.stdout) as { changeRoot?: unknown };
+	if (typeof status.changeRoot !== "string") throw new Error("Specbase status did not return an active change root.");
+	const changeMetadataPath = join(status.changeRoot, ".openspec.yaml");
+	return {
+		version: 1,
+		ownerId: input.ownerId,
+		runId: input.runId,
+		authorization: input.authorization,
+		branch,
+		startHead,
+		remote,
+		repository,
+		base,
+		head: branch,
+		baselineDirtyPaths,
+		changeMetadataPath,
+		changeMetadataBeforePanel: readFileSync(changeMetadataPath, "utf8"),
+		localDeliveryRunId: input.runId,
+		localDeliveryCommits: [...input.commits],
+	};
+}
+
 export function restoreDraftPanelFootprint(root: string, ownerId: string): void {
 	const contextPath = join(root, ".rpiv", "artifacts", "specbase-draft-pr-delivery", ownerId, "review-context.json");
 	if (!existsSync(contextPath)) return;
 	const context = JSON.parse(readFileSync(contextPath, "utf8")) as Partial<DraftPrContext>;
 	if (typeof context.changeMetadataPath !== "string" || typeof context.changeMetadataBeforePanel !== "string") return;
 	const current = readFileSync(context.changeMetadataPath, "utf8");
-	if (/^draftPullRequest:/mu.test(current)) return;
+	if (/^(?:draftPullRequest|pullRequest):/mu.test(current)) return;
 	writeFileSync(context.changeMetadataPath, context.changeMetadataBeforePanel, "utf8");
 }
 
@@ -215,6 +278,14 @@ export function validatePanelDisposition(panel: PanelDisposition): PanelDisposit
 	return panel;
 }
 
+export interface RemoteDeliveryContext {
+	readonly authorization: { readonly root: string; readonly changeId: string };
+	readonly remote: string;
+	readonly repository: string;
+	readonly base: string;
+	readonly head: string;
+}
+
 export interface RemoteGitAdapter {
 	readHead(remote: string, branch: string): Promise<string | null>;
 	isAncestor(ancestor: string, descendant: string): Promise<boolean>;
@@ -222,7 +293,7 @@ export interface RemoteGitAdapter {
 }
 
 export async function publishVerifiedHead(
-	context: DraftPrContext,
+	context: RemoteDeliveryContext,
 	finalVerifiedHead: string,
 	adapter: RemoteGitAdapter,
 ): Promise<RemoteHeadResult> {
@@ -291,10 +362,68 @@ export interface PullRequestRecord {
 export interface GitHubAdapter {
 	list(repository: string, head: string): Promise<readonly PullRequestRecord[]>;
 	createDraft(input: { repository: string; base: string; head: string; title: string; body: string }): Promise<void>;
+	markReady?(repository: string, number: number): Promise<void>;
 }
 
+export async function ensureReadyPullRequest(
+	context: RemoteDeliveryContext,
+	finalVerifiedHead: string,
+	runId: string,
+	panel: PanelDisposition,
+	adapter: Required<GitHubAdapter>,
+	readRemoteHead: () => Promise<string | null>,
+): Promise<DraftPrDescriptor & { state: "ready" }> {
+	const inspect = async (): Promise<readonly PullRequestRecord[]> => adapter.list(context.repository, context.head);
+	let matches = await inspect();
+	if (matches.some((pr) => pr.base !== context.base))
+		throw new Error("An existing pull request for this head uses a conflicting base branch.");
+	if (matches.length === 0) {
+		if ((await readRemoteHead()) !== finalVerifiedHead)
+			throw new Error("Remote head changed before pull request creation.");
+		await adapter.createDraft({
+			repository: context.repository,
+			base: context.base,
+			head: context.head,
+			title: context.authorization.changeId,
+			body: `Automated review request for ${context.authorization.changeId}.\n\nPanel disposition: ${panel.disposition}.\nVerified head: ${finalVerifiedHead}.`,
+		});
+		matches = await inspect();
+	}
+	if (matches.length !== 1) throw new Error(`Expected exactly one matching pull request; found ${matches.length}.`);
+	let pr = matches[0]!;
+	if (
+		pr.state !== "open" ||
+		pr.base !== context.base ||
+		pr.head !== context.head ||
+		pr.headSha !== finalVerifiedHead
+	) {
+		throw new Error("Matching pull request conflicts with the exact ready/base/head/finalVerifiedHead contract.");
+	}
+	if (pr.draft) {
+		if ((await readRemoteHead()) !== finalVerifiedHead)
+			throw new Error("Remote head changed before marking the pull request ready.");
+		await adapter.markReady(context.repository, pr.number);
+		matches = await inspect();
+		if (matches.length !== 1) throw new Error("Pull request identity changed while marking ready.");
+		pr = matches[0]!;
+	}
+	if (pr.state !== "open" || pr.draft || pr.headSha !== finalVerifiedHead)
+		throw new Error("Pull request did not confirm ready state for the verified head.");
+	return {
+		number: pr.number,
+		url: pr.url,
+		repository: context.repository,
+		base: context.base,
+		head: context.head,
+		headSha: finalVerifiedHead,
+		runId,
+		state: "ready",
+	};
+}
+
+/** Legacy recovery helper: it intentionally stops at a draft and never assigns Reviewing. */
 export async function ensureDraftPullRequest(
-	context: DraftPrContext,
+	context: RemoteDeliveryContext,
 	finalVerifiedHead: string,
 	runId: string,
 	panel: PanelDisposition,
@@ -396,9 +525,19 @@ export function githubCliAdapter(root: string): GitHubAdapter {
 			if (result.error || result.status !== 0)
 				throw result.error ?? new Error((result.stderr || result.stdout).trim());
 		},
+		markReady: async (repository, number) => {
+			const result = spawnSync("gh", ["pr", "ready", String(number), "--repo", repository], {
+				cwd: root,
+				encoding: "utf8",
+				timeout: 120_000,
+			});
+			if (result.error || result.status !== 0)
+				throw result.error ?? new Error((result.stderr || result.stdout).trim());
+		},
 	};
 }
 
+/** Legacy recovery recorder: canonical state is observed but a draft never claims Reviewing. */
 export async function recordCanonicalDraftResult(
 	context: DraftPrContext,
 	descriptor: DraftPrDescriptor,
@@ -424,11 +563,7 @@ export async function recordCanonicalDraftResult(
 		dispatchKind: "capability",
 	};
 	const result = await api.recordDirectActionResult(intent, descriptor, { root: context.authorization.root });
-	if (
-		!result.accepted ||
-		result.snapshot?.lifecycle !== "reviewing" ||
-		result.snapshot.draftPullRequest?.url !== descriptor.url
-	) {
+	if (!result.accepted || result.snapshot?.draftPullRequest?.url !== descriptor.url) {
 		return {
 			status: "failed",
 			changeId: context.authorization.changeId,
@@ -437,10 +572,15 @@ export async function recordCanonicalDraftResult(
 				result.diagnostics
 					?.map((item) => item.message)
 					.filter(Boolean)
-					.join("; ") || "canonical Reviewing observation failed",
+					.join("; ") || "canonical draft observation failed",
 		};
 	}
-	return { status: "reviewing", changeId: context.authorization.changeId, url: descriptor.url, reason: null };
+	return {
+		status: "failed",
+		changeId: context.authorization.changeId,
+		url: descriptor.url,
+		reason: "legacy draft delivery does not assign Reviewing",
+	};
 }
 
 export function writeDraftArtifact(root: string, ownerId: string, name: string, value: unknown): string {

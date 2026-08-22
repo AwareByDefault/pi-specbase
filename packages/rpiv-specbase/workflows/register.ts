@@ -24,6 +24,13 @@ import {
 } from "./draft-pr-contracts.js";
 import { registerDraftRunId, restoreDraftPanelFootprint } from "./draft-pr-delivery.js";
 import { acquireDeliveryLease, attachRunToDeliveryLease, releaseDeliveryLease } from "./lease.js";
+import {
+	READY_TO_REVIEW_CAPABILITY_ID,
+	READY_TO_REVIEW_MAX_FIXES,
+	READY_TO_REVIEW_WORKFLOW_NAME,
+	type ReadyLaunch,
+} from "./ready-to-review-contracts.js";
+import { registerReadyRunId } from "./ready-to-review-delivery.js";
 
 let runtimeRegistration: Promise<void> | undefined;
 const activeRuns = new Set<Promise<unknown>>();
@@ -100,6 +107,45 @@ export const LOCAL_DELIVERY_SKILL_CONTRACTS: ReadonlyArray<readonly [string, Ski
 		}),
 	],
 	[
+		"specbase-ready-review-readiness",
+		declared({
+			consumes: { reads: { capture: {} } },
+			produces: {
+				kind: "produces",
+				data: readinessSchema as unknown as SkillContract["produces"] extends { data?: infer T } ? T : never,
+				meta: { artifactKind: "specbase-ready-to-review-readiness" },
+			},
+		}),
+	],
+	[
+		"specbase-author-red-evidence",
+		declared({
+			consumes: { reads: { capture: {}, "spec-review": {} } },
+			produces: { kind: "side-effect", meta: { effect: "declared-evidence-red-mutation" } },
+		}),
+	],
+	[
+		"specbase-implement-green",
+		declared({
+			consumes: { reads: { capture: {}, "commit-red": {} } },
+			produces: { kind: "side-effect", meta: { effect: "production-green-mutation" } },
+		}),
+	],
+	[
+		"specbase-refactor-decision",
+		declared({
+			consumes: { reads: { capture: {}, "commit-green": {} } },
+			produces: { kind: "produces", meta: { artifactKind: "specbase-refactor-decision" } },
+		}),
+	],
+	[
+		"specbase-green-refactor",
+		declared({
+			consumes: { reads: { capture: {}, "commit-green": {}, "refactor-decision": {} } },
+			produces: { kind: "side-effect", meta: { effect: "green-preserving-refactor" } },
+		}),
+	],
+	[
 		"specbase-panel-local-fix",
 		declared({
 			consumes: { reads: { capture: {}, "panel-disposition": {} } },
@@ -121,13 +167,22 @@ export function ensureSpecbaseLocalDeliveryRuntime(): Promise<void> {
 			try {
 				const startup = await import("@juicesharp/rpiv-workflow/startup");
 				startup.registerBuiltInsProvider(async () => {
-					const [{ specbaseLocalDeliveryWorkflow }, { specbaseDraftPrWorkflow }] = await Promise.all([
+					const [
+						{ specbaseLocalDeliveryWorkflow },
+						{ specbaseDraftPrWorkflow },
+						{ specbaseReadyToReviewWorkflow },
+					] = await Promise.all([
 						import("./specbase-local-delivery.js"),
 						import("./specbase-draft-pr-delivery.js"),
+						import("./specbase-ready-to-review.js"),
 					]);
-					// Both modules construct through validating factories, so registration
+					// Every module constructs through its validating factory, so registration
 					// never sees an unvalidated graph.
-					startup.registerBuiltIns([specbaseLocalDeliveryWorkflow, specbaseDraftPrWorkflow]);
+					startup.registerBuiltIns([
+						specbaseLocalDeliveryWorkflow,
+						specbaseDraftPrWorkflow,
+						specbaseReadyToReviewWorkflow,
+					]);
 				});
 				startup.registerSkillContractsProvider(() => {
 					startup.registerSkillContracts(LOCAL_DELIVERY_SKILL_CONTRACTS, "rpiv-specbase");
@@ -222,6 +277,75 @@ export function createLocalDeliveryCapabilityHandler(
 	};
 }
 
+export function createReadyToReviewCapabilityHandler(
+	pi: ExtensionAPI,
+	ctx: ExtensionCommandContext,
+	root: string,
+): CapabilityHandler {
+	return async (request: CapabilityDispatchRequest) => {
+		if (request.descriptor.dispatch.capabilityId !== READY_TO_REVIEW_CAPABILITY_ID) {
+			return { accepted: false, reason: `Unsupported capability '${request.descriptor.dispatch.capabilityId}'.` };
+		}
+		await ensureSpecbaseLocalDeliveryRuntime();
+		const args = request.descriptor.dispatch.arguments;
+		const changeId = typeof args.changeId === "string" ? args.changeId : undefined;
+		const storeId = typeof args.storeId === "string" ? args.storeId : null;
+		if (!changeId) return { accepted: false, reason: "Ready-to-review delivery requires a canonical changeId." };
+		const workflowApi = await import("@juicesharp/rpiv-workflow");
+		const ownerId = randomUUID();
+		const lease = acquireDeliveryLease({ root, storeId, changeId }, ownerId);
+		if (!lease.acquired) return { accepted: false, reason: lease.reason };
+		const launch: ReadyLaunch = {
+			version: 1,
+			ownerId,
+			authorization: {
+				catalogVersion: request.trigger.meta.catalogVersion,
+				actionId: request.trigger.meta.actionId,
+				capabilityId: READY_TO_REVIEW_CAPABILITY_ID,
+				changeId,
+				storeId,
+				root,
+			},
+		};
+		let resolveStarted!: (runId: string) => void;
+		const started = new Promise<string>((resolve) => {
+			resolveStarted = resolve;
+		});
+		const observer = { ...ctx, cwd: root } as unknown as WorkflowHostContext;
+		const running = workflowApi.runWorkflowByName(observer, READY_TO_REVIEW_WORKFLOW_NAME, JSON.stringify(launch), {
+			host: pi,
+			trigger: request.trigger,
+			maxIterations: 256,
+			maxBackwardJumps: READY_TO_REVIEW_MAX_FIXES,
+			lifecycle: {
+				onWorkflowStart: (lifecycle) => {
+					attachRunToDeliveryLease(lease.path, ownerId, lifecycle.runId);
+					registerReadyRunId(ownerId, lifecycle.runId);
+					resolveStarted(lifecycle.runId);
+				},
+			},
+		});
+		activeRuns.add(running);
+		const cleanup = () => {
+			activeRuns.delete(running);
+			releaseDeliveryLease(lease.path, ownerId);
+		};
+		void running.then(cleanup, cleanup);
+		const result = await Promise.race([
+			started.then((runId) => ({ accepted: true as const, runId })),
+			running.then(
+				(settled) =>
+					settled.runId
+						? { accepted: true as const, runId: settled.runId }
+						: { accepted: false as const, reason: settled.error ?? "Ready-to-review workflow preflight failed." },
+				(error) => ({ accepted: false as const, reason: error instanceof Error ? error.message : String(error) }),
+			),
+		]);
+		if (!result.accepted) releaseDeliveryLease(lease.path, ownerId);
+		return result;
+	};
+}
+
 export function createDraftPrCapabilityHandler(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
@@ -306,7 +430,6 @@ export function createSpecbaseCapabilityDispatcher(
 	root: string,
 ): CapabilityDispatcherRegistry {
 	const registry = new CapabilityDispatcherRegistry();
-	registry.register(LOCAL_DELIVERY_CAPABILITY_ID, createLocalDeliveryCapabilityHandler(pi, ctx, root));
-	registry.register(DRAFT_PR_CAPABILITY_ID, createDraftPrCapabilityHandler(pi, ctx, root));
+	registry.register(READY_TO_REVIEW_CAPABILITY_ID, createReadyToReviewCapabilityHandler(pi, ctx, root));
 	return registry;
 }

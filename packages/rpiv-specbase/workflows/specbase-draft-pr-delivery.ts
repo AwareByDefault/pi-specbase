@@ -133,7 +133,7 @@ const stop = terminal.script({ run: () => {} });
 const workflow = defineWorkflow({
 	name: DRAFT_PR_WORKFLOW_NAME,
 	description:
-		"Run the generated Specbase review panel, preserve typed review-strength disposition, publish one exact verified head without force, ensure one draft PR, and record canonical Reviewing state.",
+		"Legacy recovery workflow: run the generated panel, publish one exact verified head without force, ensure one draft PR, and record a non-Reviewing draft observation when the historical contract remains available.",
 	resume: {
 		before: ({ input, runId }) => {
 			const launch = parseLaunch(input);

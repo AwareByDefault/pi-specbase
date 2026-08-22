@@ -145,7 +145,7 @@ describe("specbase.ready-to-review phase policy", () => {
 		).rejects.toThrow(/frozen planning artifact mutation/iu);
 		await expect(
 			editWithPhase(cwd, ownerId, "specbase-review-panel", "src/implementation.ts", "after", "bad"),
-		).rejects.toThrow(/read-only ready-to-review phase/iu);
+		).rejects.toThrow(/panel metadata-only mutation/iu);
 	});
 });
 

@@ -27,7 +27,7 @@ export type DeliveryUnit = Static<typeof deliveryUnitSchema>;
 export const deliveryAuthorizationSchema = Type.Object({
 	catalogVersion: Type.Integer({ minimum: 1 }),
 	actionId: Type.String({ minLength: 1 }),
-	capabilityId: Type.Literal(LOCAL_DELIVERY_CAPABILITY_ID),
+	capabilityId: Type.Union([Type.Literal(LOCAL_DELIVERY_CAPABILITY_ID), Type.Literal("specbase.ready-to-review")]),
 	changeId: Type.String({ minLength: 1 }),
 	storeId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
 	root: Type.String({ minLength: 1 }),

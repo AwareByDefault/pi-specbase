@@ -84,6 +84,7 @@ export function gitDirtyPaths(cwd: string): string[] {
 			(path) =>
 				!path.startsWith(".rpiv/artifacts/specbase-local-delivery/") &&
 				!path.startsWith(".rpiv/artifacts/specbase-draft-pr-delivery/") &&
+				!path.startsWith(".rpiv/artifacts/specbase-ready-to-review/") &&
 				!path.startsWith(".rpiv/specbase-local-delivery/") &&
 				!path.startsWith(".rpiv/workflows/"),
 		)
@@ -279,6 +280,8 @@ export async function validateCanonicalDeliveryAuthorization(
 			target: null | { workItemId: string; storeId: string | null };
 			actions: readonly {
 				actionId: string;
+				availability?: string;
+				blocker?: unknown;
 				dispatch: { kind: string; capabilityId?: string; arguments?: Record<string, unknown> };
 			}[];
 		}>;
@@ -316,7 +319,9 @@ export async function validateCanonicalDeliveryAuthorization(
 		if (
 			catalog.target?.workItemId === authorization.changeId &&
 			catalog.target.storeId === authorization.storeId &&
-			original?.dispatch.kind === "capability" &&
+			original?.availability === "available" &&
+			(original.blocker === null || original.blocker === undefined) &&
+			original.dispatch.kind === "capability" &&
 			original.dispatch.capabilityId === authorization.capabilityId &&
 			originalArgs?.changeId === authorization.changeId &&
 			(authorization.storeId === null

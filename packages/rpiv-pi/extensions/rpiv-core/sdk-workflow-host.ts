@@ -292,12 +292,12 @@ export class SdkWorkflowHost implements WorkflowHostContext {
 			thinkingLevel: options.model?.thinking,
 			...(toolPolicy
 				? {
-						tools: [...toolPolicy.allowedToolNames],
+						tools: [...(toolPolicy.allowedToolNamesForPrompt?.(options.prompt) ?? toolPolicy.allowedToolNames)],
 						excludeTools: [...toolPolicy.excludedToolNames],
 						// SDK custom definitions override the same-named built-ins. This is
 						// the public createAgentSession seam; baseToolsOverride belongs to
 						// AgentSession's lower-level constructor and is ignored by the SDK.
-						customTools: [...toolPolicy.createToolDefinitions(this.cwd)],
+						customTools: [...toolPolicy.createToolDefinitions(this.cwd, options.prompt)],
 					}
 				: {}),
 		});
