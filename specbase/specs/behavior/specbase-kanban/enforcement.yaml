@@ -1,0 +1,53 @@
+bindings:
+  fixture-kanban-interaction-test:
+    type: test
+    covers:
+      - explicit-demo-board
+      - keyboard-board-navigation
+      - selected-fixture-action-intent
+    source: packages/rpiv-specbase/kanban/fixture-board.test.ts
+  live-kanban-board-test:
+    type: test
+    covers:
+      - explicit-demo-board
+      - live-store-selection
+      - authoritative-live-board-projection
+      - identity-preserving-refresh
+    source: packages/rpiv-specbase/kanban/live-board.test.ts
+  kanban-action-dispatch-test:
+    type: test
+    covers:
+      - authoritative-card-actions
+      - exact-validated-intent-transport
+      - conversational-action-dispatch
+      - autonomous-action-dispatch
+      - dispatch-feedback-and-refresh
+    source: packages/rpiv-specbase/kanban/action-dispatch.test.ts
+  card-workflow-activity-test:
+    type: test
+    covers:
+      - correlated-live-workflow-activity
+      - exact-workflow-outcome-presentation
+      - resumable-run-identity
+      - reopened-board-activity-recap
+    source: packages/rpiv-specbase/kanban/workflow-activity.test.ts
+  local-delivery-outcome:
+    type: test
+    covers:
+      - authorized-local-delivery-launch
+      - evidence-first-serial-implementation
+      - green-bounded-local-gate
+      - reviewed-atomic-local-commits
+      - local-only-recoverable-boundary
+    source: packages/rpiv-specbase/workflows/local-delivery.test.ts
+  draft-pr-delivery-outcome-test:
+    type: test
+    covers:
+      - authorized-review-delivery-launch
+      - machine-readable-panel-disposition
+      - bounded-panel-fixes-with-final-gate
+      - idempotent-safe-push
+      - resume-safe-draft-pull-request
+      - canonical-reviewing-card-outcome
+      - human-controlled-post-pr-boundary
+    source: packages/rpiv-specbase/workflows/draft-pr-delivery.test.ts

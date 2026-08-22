@@ -1,0 +1,8 @@
+bindings:
+  workflow-bridge-conformance-test:
+    type: test
+    covers:
+      - workflow-lifecycle-observer-instrument
+      - structured-trigger-correlation-instrument
+      - public-recap-hydration-instrument
+    source: packages/rpiv-specbase/workflow-bridge.test.ts
