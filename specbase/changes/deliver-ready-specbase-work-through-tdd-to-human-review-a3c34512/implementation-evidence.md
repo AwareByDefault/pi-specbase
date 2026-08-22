@@ -41,7 +41,9 @@
 
 Three independent review rounds found and drove remediation for dead readiness markers, an incompatible remote schema, child Git authority, broad mutation scope, stale gate booleans, weak receipt fingerprints, resume drift, blocked-action fallback, optional-refactor absence, panel timestamp dirt, and unignored run artifacts. All deterministic execution blockers were fixed.
 
-One review-strength boundary remains for the later integrated panel review: the generated panel may fan out through Pi's `Agent` tool. The outer panel session is metadata-only and all mutation children are host-confined, but nested reviewer tool scoping is owned by the generated panel/subagent configuration rather than this workflow policy. The generated panel instructions require read-only reviewers, and post-panel restoration plus current-head gate/clean-tree checks catch repository mutation; remote-capability denial inside nested reviewer sessions is not independently proven here.
+The final integrated panel ran blind behavioral, architectural, workflow-instrument, design, and enforcement lenses. Findings drove `10052c76` plus direct automated-binding corrections. API and design lenses were clean.
+
+One review-strength boundary remains: the generated panel may fan out through Pi's `Agent` tool. The outer panel session is metadata-only and all mutation children are host-confined, but nested reviewer tool scoping is owned by the generated panel/subagent configuration rather than this workflow policy. The generated panel instructions require read-only reviewers, and post-panel restoration plus current-head gate/clean-tree checks catch repository mutation; remote-capability denial inside nested reviewer sessions is not independently proven here.
 
 ### Fake/live boundaries
 

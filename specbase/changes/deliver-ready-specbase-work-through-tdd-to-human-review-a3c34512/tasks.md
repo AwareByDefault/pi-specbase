@@ -25,4 +25,4 @@
 - [x] 4.1 Perform only bounded refactors after GREEN; rerun the exact focused checks and commit refactors separately.
 - [x] 4.2 Run all affected rpiv-specbase/RPIV tests, TypeScript, Biome, builds, package dry-run, strict change validation, and stack validation.
 - [x] 4.3 Record linkage, native-harness execution, semantic correspondence, fake-remote boundary, commit ordering, and final exact HEAD in implementation evidence.
-- [ ] 4.4 Run the generated review panel on the final green head and remediate bounded implementation findings in separate green commits.
+- [x] 4.4 Run the generated review panel on the final green head and remediate bounded implementation findings in separate green commits.
