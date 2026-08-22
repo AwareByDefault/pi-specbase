@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { SkillContract, WorkflowHostContext } from "@juicesharp/rpiv-workflow/registration";
+import { Value } from "typebox/value";
 import {
 	CapabilityDispatcherRegistry,
 	type CapabilityDispatchRequest,
@@ -24,6 +25,16 @@ import {
 } from "./draft-pr-contracts.js";
 import { registerDraftRunId, restoreDraftPanelFootprint } from "./draft-pr-delivery.js";
 import { acquireDeliveryLease, attachRunToDeliveryLease, releaseDeliveryLease } from "./lease.js";
+import {
+	type FeedbackLaunch,
+	feedbackClassificationScopeSchema,
+	feedbackLaunchSchema,
+	feedbackPanelSchema,
+	PR_FEEDBACK_CAPABILITY_ID,
+	PR_FEEDBACK_MAX_FIXES,
+	PR_FEEDBACK_WORKFLOW_NAME,
+	pullRequestContextSchema,
+} from "./pr-feedback-contracts.js";
 import {
 	READY_TO_REVIEW_CAPABILITY_ID,
 	READY_TO_REVIEW_MAX_FIXES,
@@ -146,6 +157,44 @@ export const LOCAL_DELIVERY_SKILL_CONTRACTS: ReadonlyArray<readonly [string, Ski
 		}),
 	],
 	[
+		"specbase-pr-feedback-classify",
+		declared({
+			consumes: { reads: { capture: {} } },
+			produces: {
+				kind: "produces",
+				data: feedbackClassificationScopeSchema as unknown as SkillContract["produces"] extends { data?: infer T }
+					? T
+					: never,
+				meta: { artifactKind: "specbase-pr-feedback-classification" },
+			},
+		}),
+	],
+	[
+		"specbase-pr-feedback-author-red",
+		declared({
+			consumes: { reads: { capture: {}, classify: {} } },
+			produces: { kind: "side-effect", meta: { effect: "feedback-red-evidence-mutation" } },
+		}),
+	],
+	[
+		"specbase-pr-feedback-implement-green",
+		declared({
+			consumes: { reads: { capture: {}, classify: {}, "commit-red": {} } },
+			produces: { kind: "side-effect", meta: { effect: "feedback-green-production-mutation" } },
+		}),
+	],
+	[
+		"specbase-pr-feedback-panel",
+		declared({
+			consumes: { reads: { capture: {}, classify: {}, gate: {} } },
+			produces: {
+				kind: "produces",
+				data: feedbackPanelSchema as unknown as SkillContract["produces"] extends { data?: infer T } ? T : never,
+				meta: { artifactKind: "specbase-pr-feedback-panel" },
+			},
+		}),
+	],
+	[
 		"specbase-panel-local-fix",
 		declared({
 			consumes: { reads: { capture: {}, "panel-disposition": {} } },
@@ -171,10 +220,12 @@ export function ensureSpecbaseLocalDeliveryRuntime(): Promise<void> {
 						{ specbaseLocalDeliveryWorkflow },
 						{ specbaseDraftPrWorkflow },
 						{ specbaseReadyToReviewWorkflow },
+						{ specbasePrFeedbackWorkflow },
 					] = await Promise.all([
 						import("./specbase-local-delivery.js"),
 						import("./specbase-draft-pr-delivery.js"),
 						import("./specbase-ready-to-review.js"),
+						import("./specbase-pr-feedback.js"),
 					]);
 					// Every module constructs through its validating factory, so registration
 					// never sees an unvalidated graph.
@@ -182,6 +233,7 @@ export function ensureSpecbaseLocalDeliveryRuntime(): Promise<void> {
 						specbaseLocalDeliveryWorkflow,
 						specbaseDraftPrWorkflow,
 						specbaseReadyToReviewWorkflow,
+						specbasePrFeedbackWorkflow,
 					]);
 				});
 				startup.registerSkillContractsProvider(() => {
@@ -346,6 +398,81 @@ export function createReadyToReviewCapabilityHandler(
 	};
 }
 
+export function createPrFeedbackCapabilityHandler(
+	pi: ExtensionAPI,
+	ctx: ExtensionCommandContext,
+	root: string,
+): CapabilityHandler {
+	return async (request: CapabilityDispatchRequest) => {
+		if (request.descriptor.dispatch.capabilityId !== PR_FEEDBACK_CAPABILITY_ID)
+			return { accepted: false, reason: `Unsupported capability '${request.descriptor.dispatch.capabilityId}'.` };
+		const args = request.descriptor.dispatch.arguments;
+		const changeId = typeof args.changeId === "string" ? args.changeId : undefined;
+		const storeId = typeof args.storeId === "string" ? args.storeId : null;
+		if (!changeId || !Value.Check(pullRequestContextSchema, args.pullRequest))
+			return { accepted: false, reason: "PR-feedback delivery requires an exact canonical pull-request identity." };
+		await ensureSpecbaseLocalDeliveryRuntime();
+		const ownerId = randomUUID();
+		const lease = acquireDeliveryLease({ root, storeId, changeId }, ownerId);
+		if (!lease.acquired) return { accepted: false, reason: lease.reason };
+		const launch: FeedbackLaunch = {
+			version: 1,
+			ownerId,
+			authorization: {
+				catalogVersion: request.trigger.meta.catalogVersion,
+				actionId: "pr-feedback",
+				capabilityId: PR_FEEDBACK_CAPABILITY_ID,
+				changeId,
+				storeId,
+				root,
+				pullRequest: args.pullRequest,
+			},
+		};
+		if (!Value.Check(feedbackLaunchSchema, launch))
+			return { accepted: false, reason: "PR-feedback launch envelope is invalid." };
+		const workflowApi = await import("@juicesharp/rpiv-workflow");
+		let resolveStarted!: (runId: string) => void;
+		const started = new Promise<string>((resolveStartedRun) => {
+			resolveStarted = resolveStartedRun;
+		});
+		const running = workflowApi.runWorkflowByName(
+			{ ...ctx, cwd: root } as unknown as WorkflowHostContext,
+			PR_FEEDBACK_WORKFLOW_NAME,
+			JSON.stringify(launch),
+			{
+				host: pi,
+				trigger: request.trigger,
+				maxIterations: 128,
+				maxBackwardJumps: PR_FEEDBACK_MAX_FIXES,
+				lifecycle: {
+					onWorkflowStart: (lifecycle) => {
+						attachRunToDeliveryLease(lease.path, ownerId, lifecycle.runId);
+						resolveStarted(lifecycle.runId);
+					},
+				},
+			},
+		);
+		activeRuns.add(running);
+		const cleanup = () => {
+			activeRuns.delete(running);
+			releaseDeliveryLease(lease.path, ownerId);
+		};
+		void running.then(cleanup, cleanup);
+		const result = await Promise.race([
+			started.then((runId) => ({ accepted: true as const, runId })),
+			running.then(
+				(settled) =>
+					settled.runId
+						? { accepted: true as const, runId: settled.runId }
+						: { accepted: false as const, reason: settled.error ?? "PR-feedback workflow preflight failed." },
+				(error) => ({ accepted: false as const, reason: error instanceof Error ? error.message : String(error) }),
+			),
+		]);
+		if (!result.accepted) releaseDeliveryLease(lease.path, ownerId);
+		return result;
+	};
+}
+
 export function createDraftPrCapabilityHandler(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
@@ -431,5 +558,6 @@ export function createSpecbaseCapabilityDispatcher(
 ): CapabilityDispatcherRegistry {
 	const registry = new CapabilityDispatcherRegistry();
 	registry.register(READY_TO_REVIEW_CAPABILITY_ID, createReadyToReviewCapabilityHandler(pi, ctx, root));
+	registry.register(PR_FEEDBACK_CAPABILITY_ID, createPrFeedbackCapabilityHandler(pi, ctx, root));
 	return registry;
 }

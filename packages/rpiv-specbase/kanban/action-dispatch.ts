@@ -2,7 +2,8 @@ export type DirectActionDispatchKind = "skill" | "capability";
 export type DirectActionCapabilityId =
 	| "specbase.local-delivery"
 	| "specbase.draft-pr-delivery"
-	| "specbase.ready-to-review";
+	| "specbase.ready-to-review"
+	| "specbase.pr-feedback";
 
 export interface DirectActionBlocker {
 	readonly code: string;
@@ -185,14 +186,37 @@ export function canonicalSkillInvocation(dispatch: SkillDispatchDescriptor): str
 	const keys = Object.keys(args).sort();
 	const primaryKey = "workItemId" in args ? "workItemId" : "changeId" in args ? "changeId" : undefined;
 	if (!primaryKey || typeof args[primaryKey] !== "string") return undefined;
-	const allowed = new Set([primaryKey, "storeId", ...(primaryKey === "workItemId" ? ["fromIdea"] : [])]);
+	const pullRequest = args.pullRequest;
+	const allowed = new Set([
+		primaryKey,
+		"storeId",
+		...(primaryKey === "workItemId" ? ["fromIdea", "pullRequest"] : []),
+	]);
 	if (keys.some((key) => !allowed.has(key))) return undefined;
 	if ("storeId" in args && typeof args.storeId !== "string") return undefined;
 	if ("fromIdea" in args && args.fromIdea !== true) return undefined;
+	if (pullRequest !== undefined && !isPullRequestContext(pullRequest)) return undefined;
 
 	const tokens = [`/skill:${dispatch.skillId}`, shellArgument(args[primaryKey])];
 	if (args.fromIdea === true) tokens.push("--from-idea");
 	if (typeof args.storeId === "string") tokens.push("--store", shellArgument(args.storeId));
+	if (pullRequest) {
+		tokens.push(
+			"--pull-request",
+			shellArgument(
+				JSON.stringify({
+					number: pullRequest.number,
+					repository: pullRequest.repository,
+					url: pullRequest.url,
+					base: pullRequest.base,
+					head: pullRequest.head,
+					headSha: pullRequest.headSha,
+					...(pullRequest.state ? { state: pullRequest.state } : {}),
+					...(pullRequest.runId ? { runId: pullRequest.runId } : {}),
+				}),
+			),
+		);
+	}
 	return tokens.join(" ");
 }
 
@@ -328,13 +352,17 @@ function isSupportedCapabilityDescriptor(
 	if (
 		descriptor.dispatch.capabilityId !== "specbase.local-delivery" &&
 		descriptor.dispatch.capabilityId !== "specbase.draft-pr-delivery" &&
-		descriptor.dispatch.capabilityId !== "specbase.ready-to-review"
+		descriptor.dispatch.capabilityId !== "specbase.ready-to-review" &&
+		descriptor.dispatch.capabilityId !== "specbase.pr-feedback"
 	)
 		return false;
 	const args = descriptor.dispatch.arguments;
 	const keys = Object.keys(args).sort();
-	if (keys.some((key) => key !== "changeId" && key !== "storeId")) return false;
+	const feedback = descriptor.dispatch.capabilityId === "specbase.pr-feedback";
+	if (keys.some((key) => key !== "changeId" && key !== "storeId" && (!feedback || key !== "pullRequest")))
+		return false;
 	if (args.changeId !== selection.workItemId) return false;
+	if (feedback && !isPullRequestContext(args.pullRequest)) return false;
 	if (selection.storeId === null) return !("storeId" in args);
 	return args.storeId === selection.storeId;
 }
@@ -379,6 +407,34 @@ function actionIdOf(value: unknown): string | undefined {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
 	const actionId = (value as Record<string, unknown>).actionId;
 	return typeof actionId === "string" ? actionId : undefined;
+}
+
+interface PullRequestContext {
+	readonly number: number;
+	readonly url: string;
+	readonly repository: string;
+	readonly base: string;
+	readonly head: string;
+	readonly headSha: string;
+	readonly state?: string;
+	readonly runId?: string;
+}
+
+function isPullRequestContext(value: unknown): value is PullRequestContext {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+	const record = value as Record<string, unknown>;
+	const keys = Object.keys(record).sort();
+	const required = ["base", "head", "headSha", "number", "repository", "url"];
+	return (
+		keys.every((key) => required.includes(key) || key === "state" || key === "runId") &&
+		required.every((key) => keys.includes(key)) &&
+		Number.isInteger(record.number) &&
+		Number(record.number) > 0 &&
+		["url", "repository", "base", "head", "headSha"].every((key) => typeof record[key] === "string") &&
+		(record.state === undefined || typeof record.state === "string") &&
+		(record.runId === undefined || typeof record.runId === "string") &&
+		/^[0-9a-f]{40}$/u.test(String(record.headSha))
+	);
 }
 
 function shellArgument(value: string): string {

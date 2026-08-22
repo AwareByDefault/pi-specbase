@@ -16,6 +16,7 @@ import {
 export const SPECBASE_LOCAL_DELIVERY_WORKFLOW = "specbase-local-delivery";
 export const SPECBASE_DRAFT_PR_WORKFLOW = "specbase-draft-pr-delivery";
 export const SPECBASE_READY_TO_REVIEW_WORKFLOW = "specbase-ready-to-review";
+export const SPECBASE_PR_FEEDBACK_WORKFLOW = "specbase-pr-feedback";
 const BUNDLED_SPECBASE_SKILLS = resolve(dirname(fileURLToPath(import.meta.url)), "../../../rpiv-specbase/skills");
 
 export const LOCAL_DELIVERY_ALLOWED_TOOL_NAMES: readonly string[] = Object.freeze([
@@ -57,6 +58,8 @@ const SAFE_DRAFT_COMMANDS: readonly RegExp[] = [...SAFE_COMMANDS, /^git\s+(?:add
 const FORBIDDEN_CAPABILITY =
 	/\b(?:curl|wget|ssh|scp|sftp|gh|hub|python|ruby|perl|npx)\b|\bnode\s+(?:-[ep]|--eval|--print)\b|\bnpm\s+exec\b|\bgit\b[^\n;&|]*\b(?:push|fetch|pull|remote|ls-remote|request-pull|send-email|submodule|config)\b|\b(?:specbase|openspec)\s+(?:archive|stack\s+(?:create|advance|apply|archive|pop|push))\b|(?:\/skill:|\/)(?:spcb:)?(?:specbase-)?(?:review-panel|archive|successor)\b/iu;
 const SHELL_INDIRECTION = /[;&|<>`\n\r]|\$\(|\$\{|\b(?:bash|sh|zsh|fish|env|command|eval|exec)\b/iu;
+const GIT_INJECTION_FLAG = /(?:^|\s)(?:-c|--config(?:-env)?|--output(?:=|\s))/u;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 export class LocalDeliveryToolPolicyError extends Error {
 	constructor(
@@ -74,7 +77,8 @@ export function assertLocalDeliveryCommand(
 	allowedCommands: readonly RegExp[] = SAFE_COMMANDS,
 ): void {
 	const trimmed = command.trim();
-	const forbidden = FORBIDDEN_CAPABILITY.test(trimmed);
+	const forbidden =
+		FORBIDDEN_CAPABILITY.test(trimmed) || (trimmed.startsWith("git ") && GIT_INJECTION_FLAG.test(trimmed));
 	const helper = trimmed.match(/^node\s+(\S+)(?:\s|$)/u)?.[1];
 	const exactHelper = (() => {
 		if (!helper) return false;
@@ -115,6 +119,23 @@ export interface WorkflowChildToolPolicy {
 }
 
 type ReadyPhase = "evidence" | "implementation" | "refactor" | "artifact" | "panel" | "read-only";
+type FeedbackPhase =
+	| "evidence"
+	| "implementation"
+	| "refactor"
+	| "classification-artifact"
+	| "panel-artifact"
+	| "read-only";
+type DeliveryPhase = ReadyPhase | FeedbackPhase;
+
+function feedbackPhase(prompt: string): FeedbackPhase {
+	if (/specbase-pr-feedback-classify/iu.test(prompt)) return "classification-artifact";
+	if (/specbase-pr-feedback-panel/iu.test(prompt)) return "panel-artifact";
+	if (/specbase-pr-feedback-author-red|author-red-evidence/iu.test(prompt)) return "evidence";
+	if (/specbase-pr-feedback-implement-green|implement-green/iu.test(prompt)) return "implementation";
+	if (/green-refactor|\brefactor\b/iu.test(prompt)) return "refactor";
+	return "read-only";
+}
 
 function readyPhase(prompt: string): ReadyPhase {
 	if (/specbase-author-red-evidence|author-evidence/iu.test(prompt)) return "evidence";
@@ -172,13 +193,43 @@ async function readyMutableScope(
 	}
 }
 
+async function feedbackMutableScope(
+	root: string,
+	ownerId?: string,
+): Promise<{ evidence: Set<string>; production: string[] }> {
+	if (!ownerId || !UUID.test(ownerId)) return { evidence: new Set(), production: [] };
+	try {
+		const path = resolve(root, ".rpiv", "artifacts", "specbase-pr-feedback", ownerId, "classification.json");
+		const scope = JSON.parse(await readFile(path, "utf8")) as {
+			ownerId?: unknown;
+			evidencePaths?: unknown;
+			productionPaths?: unknown;
+		};
+		if (scope.ownerId !== ownerId || !Array.isArray(scope.evidencePaths) || !Array.isArray(scope.productionPaths))
+			return { evidence: new Set(), production: [] };
+		const normalize = (value: unknown): string | null => {
+			if (typeof value !== "string" || !value) return null;
+			const path = relative(resolve(root), resolve(root, value));
+			if (!path || path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path)) return null;
+			return path.split(sep).join("/");
+		};
+		const evidence = scope.evidencePaths.map(normalize);
+		const production = scope.productionPaths.map(normalize);
+		if (evidence.some((path) => !path) || production.some((path) => !path))
+			return { evidence: new Set(), production: [] };
+		return { evidence: new Set(evidence as string[]), production: production as string[] };
+	} catch {
+		return { evidence: new Set(), production: [] };
+	}
+}
+
 async function guardedPath(
 	rootInput: string,
 	path: string,
 	mutable: boolean,
 	ownerId?: string,
 	artifactKind = "specbase-local-delivery",
-	phase: ReadyPhase = "implementation",
+	phase: DeliveryPhase = "implementation",
 	evidencePaths: ReadonlySet<string> = new Set(),
 	productionRoots: readonly string[] = [],
 	panelMetadata?: string,
@@ -191,6 +242,35 @@ async function guardedPath(
 	}
 	if (mutable && (rel === ".git" || rel.startsWith(`.git${sep}`))) {
 		throw new LocalDeliveryToolPolicyError("Git control mutation", path);
+	}
+	if (mutable && artifactKind === "specbase-pr-feedback") {
+		const normalized = rel.split(sep).join("/");
+		const ownerArtifact =
+			ownerId !== undefined &&
+			UUID.test(ownerId) &&
+			normalized.startsWith(`.rpiv/artifacts/${artifactKind}/${ownerId}/`);
+		if (phase === "read-only") throw new LocalDeliveryToolPolicyError("read-only PR-feedback phase", path);
+		const classificationArtifact = normalized.endsWith("/classification.json");
+		const panelArtifact = normalized.endsWith("/panel.json");
+		if (
+			(phase === "classification-artifact" && (!ownerArtifact || !classificationArtifact)) ||
+			(phase === "panel-artifact" && (!ownerArtifact || !panelArtifact))
+		)
+			throw new LocalDeliveryToolPolicyError("artifact-only PR-feedback phase", path);
+		if (ownerArtifact && phase !== "classification-artifact" && phase !== "panel-artifact")
+			throw new LocalDeliveryToolPolicyError("frozen PR-feedback run artifact mutation", path);
+		if ((rel === "specbase" || rel.startsWith(`specbase${sep}`)) && !ownerArtifact)
+			throw new LocalDeliveryToolPolicyError("frozen planning artifact mutation", path);
+		if (phase === "evidence" && !ownerArtifact && !evidencePaths.has(normalized))
+			throw new LocalDeliveryToolPolicyError("undeclared feedback evidence mutation", path);
+		if ((phase === "implementation" || phase === "refactor") && evidencePaths.has(normalized))
+			throw new LocalDeliveryToolPolicyError("frozen feedback evidence mutation", path);
+		if (
+			(phase === "implementation" || phase === "refactor") &&
+			!ownerArtifact &&
+			!productionRoots.some((root) => normalized === root || normalized.startsWith(`${root}/`))
+		)
+			throw new LocalDeliveryToolPolicyError("path outside frozen feedback production scope", path);
 	}
 	if (mutable && artifactKind === "specbase-ready-to-review") {
 		const normalized = rel.split(sep).join("/");
@@ -224,7 +304,9 @@ async function guardedPath(
 				? "panel-disposition"
 				: artifactKind === "specbase-ready-to-review"
 					? "readiness|panel-disposition|refactor-decision"
-					: "readiness|local-review";
+					: artifactKind === "specbase-pr-feedback"
+						? "classification|panel|terminal"
+						: "readiness|local-review";
 		const permittedArtifact =
 			owner !== undefined &&
 			new RegExp(`^\\.rpiv/artifacts/${artifactKind}/${owner}(?:/(?:${outputNames})\\.json)?$`, "u").test(
@@ -263,19 +345,23 @@ function denialRecorder(
 function localDeliveryPolicy(
 	root: string,
 	ownerId?: string,
-	mode: "local" | "draft" | "ready" = "local",
+	mode: "local" | "draft" | "ready" | "feedback" = "local",
 ): WorkflowChildToolPolicy {
 	const artifactKind =
 		mode === "draft"
 			? "specbase-draft-pr-delivery"
 			: mode === "ready"
 				? "specbase-ready-to-review"
-				: "specbase-local-delivery";
+				: mode === "feedback"
+					? "specbase-pr-feedback"
+					: "specbase-local-delivery";
 	const recordDenied = denialRecorder(root, ownerId, artifactKind);
 	const allowedToolNames =
 		mode === "draft"
 			? Object.freeze([...LOCAL_DELIVERY_ALLOWED_TOOL_NAMES, "Agent", "todo"])
-			: LOCAL_DELIVERY_ALLOWED_TOOL_NAMES;
+			: mode === "feedback"
+				? Object.freeze([...LOCAL_DELIVERY_ALLOWED_TOOL_NAMES])
+				: LOCAL_DELIVERY_ALLOWED_TOOL_NAMES;
 	return Object.freeze({
 		allowedToolNames,
 		...(mode === "ready"
@@ -290,11 +376,14 @@ function localDeliveryPolicy(
 		additionalSkillPaths: [BUNDLED_SPECBASE_SKILLS],
 		createToolDefinitions: (cwd: string, prompt = "") => {
 			const local = createLocalBashOperations();
-			const phase = mode === "ready" ? readyPhase(prompt) : "implementation";
+			const phase: DeliveryPhase =
+				mode === "ready" ? readyPhase(prompt) : mode === "feedback" ? feedbackPhase(prompt) : "implementation";
 			const scope =
 				mode === "ready"
 					? readyMutableScope(root, ownerId)
-					: Promise.resolve({ evidence: new Set<string>(), production: ["."], panelMetadata: undefined });
+					: mode === "feedback"
+						? feedbackMutableScope(root, ownerId).then((value) => ({ ...value, panelMetadata: undefined }))
+						: Promise.resolve({ evidence: new Set<string>(), production: ["."], panelMetadata: undefined });
 			const guard = async (path: string, mutable: boolean) => {
 				const allowed = await scope;
 				return guardedPath(
@@ -375,13 +464,18 @@ export function resolveWorkflowChildToolPolicy(
 	if (
 		workflow !== SPECBASE_LOCAL_DELIVERY_WORKFLOW &&
 		workflow !== SPECBASE_DRAFT_PR_WORKFLOW &&
-		workflow !== SPECBASE_READY_TO_REVIEW_WORKFLOW
+		workflow !== SPECBASE_READY_TO_REVIEW_WORKFLOW &&
+		workflow !== SPECBASE_PR_FEEDBACK_WORKFLOW
 	)
 		return undefined;
 	let ownerId: string | undefined;
 	try {
 		const parsed = JSON.parse(input ?? "") as { ownerId?: unknown };
-		if (typeof parsed.ownerId === "string") ownerId = parsed.ownerId;
+		if (
+			typeof parsed.ownerId === "string" &&
+			(workflow !== SPECBASE_PR_FEEDBACK_WORKFLOW || UUID.test(parsed.ownerId))
+		)
+			ownerId = parsed.ownerId;
 	} catch {
 		// Capture performs schema validation and will reject malformed input. The
 		// policy still installs fail-closed tools without a denial artifact path.
@@ -393,6 +487,8 @@ export function resolveWorkflowChildToolPolicy(
 			? "draft"
 			: workflow === SPECBASE_READY_TO_REVIEW_WORKFLOW
 				? "ready"
-				: "local",
+				: workflow === SPECBASE_PR_FEEDBACK_WORKFLOW
+					? "feedback"
+					: "local",
 	);
 }

@@ -51,6 +51,51 @@ export {
 	DRAFT_PR_CAPABILITY_ID,
 	DRAFT_PR_WORKFLOW_NAME,
 } from "./workflows/draft-pr-contracts.js";
+export type {
+	FeedbackCheckpointJournal,
+	FeedbackClassification,
+	FeedbackClassificationScope,
+	FeedbackContext,
+	FeedbackRevision,
+	FeedbackSnapshot,
+	FrozenFeedback,
+	PullRequestContext,
+} from "./workflows/pr-feedback-contracts.js";
+export {
+	feedbackClassificationScopeSchema,
+	feedbackLaunchSchema,
+	feedbackRevisionSchema,
+	feedbackSnapshotSchema,
+	PR_FEEDBACK_CAPABILITY_ID,
+	PR_FEEDBACK_WORKFLOW_NAME,
+} from "./workflows/pr-feedback-contracts.js";
+export {
+	acknowledgeFeedback,
+	captureFeedbackSnapshot,
+	classifyFeedback,
+	feedbackBodyDigest,
+	feedbackReplyMarker,
+	githubCliFeedbackAdapter,
+	publishFeedbackHead,
+	reobserveFeedbackRevision,
+	replyToFeedback,
+	resolveFeedbackThread,
+} from "./workflows/pr-feedback-delivery.js";
+export {
+	assertFeedbackPublishable,
+	attestFeedbackPublication,
+	commitFeedbackCheckpoint,
+	createFeedbackContext,
+	publishFeedbackCandidate,
+	reobserveFeedbackScope,
+	replyFeedbackScope,
+	resolveFeedbackScope,
+	validateFeedbackClassificationScope,
+	validateFeedbackResume,
+	verifyFeedbackGate,
+	verifyFeedbackGreen,
+	verifyFeedbackRed,
+} from "./workflows/pr-feedback-execution.js";
 export {
 	READY_TO_REVIEW_CAPABILITY_ID,
 	READY_TO_REVIEW_WORKFLOW_NAME,
@@ -58,7 +103,9 @@ export {
 export {
 	createDraftPrCapabilityHandler,
 	createLocalDeliveryCapabilityHandler,
+	createPrFeedbackCapabilityHandler,
 	createReadyToReviewCapabilityHandler,
 	createSpecbaseCapabilityDispatcher,
 	ensureSpecbaseLocalDeliveryRuntime,
 } from "./workflows/register.js";
+export { specbasePrFeedbackWorkflow, validatedSpecbasePrFeedbackWorkflow } from "./workflows/specbase-pr-feedback.js";
