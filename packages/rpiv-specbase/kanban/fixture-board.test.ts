@@ -164,4 +164,88 @@ describe("fixture board", () => {
 		expect(headerSeparator).toBeGreaterThan(0);
 		expect(cardSeparator).toBe(headerSeparator);
 	});
+
+	it("wraps ANSI-styled titles into no more than two display-width-safe card rows", () => {
+		const board = new FixtureBoard({
+			tui: { requestRender: vi.fn(), terminal: { rows: 40, columns: 30 } },
+			theme,
+			snapshot: {
+				id: "wrapped-title",
+				title: "Wrapped title",
+				columns: [
+					{
+						id: "one",
+						label: "One",
+						cards: [
+							{
+								id: "wrapped",
+								title: "\u001b[31mwrap-start alpha beta gamma delta wrap-tail\u001b[0m",
+								summary: "Summary",
+								actions: [],
+							},
+						],
+					},
+				],
+			},
+			done: vi.fn(),
+		});
+		const lines = board.render(30);
+		const titleRows = lines.filter((line) => line.includes("wrap-start") || line.includes("wrap-tail"));
+		expect(titleRows).toHaveLength(2);
+		for (const line of titleRows) expect(visibleWidth(line)).toBeLessThanOrEqual(30);
+	});
+
+	it("moves one logical card at a time and windows mixed-height cards by complete rendered rows", () => {
+		const cards = [
+			{ id: "card-0", title: "Card zero", summary: "Summary", actions: [] },
+			{ id: "card-1", title: "Card one", summary: "Summary", actions: [] },
+			{ id: "card-2", title: "Card two", summary: "Summary", actions: [] },
+			{ id: "card-3", title: "Card three", summary: "Summary", actions: [] },
+			{ id: "card-4", title: "Card four", summary: "Summary", actions: [] },
+			{ id: "card-5", title: "Card five", summary: "Summary", actions: [] },
+			{
+				id: "card-6",
+				title: "\u001b[36mfocus-start alpha beta gamma delta epsilon focus-tail\u001b[0m",
+				summary: "Summary",
+				actions: [],
+			},
+		];
+		const board = new FixtureBoard({
+			tui: { requestRender: vi.fn(), terminal: { rows: 22, columns: 42 } },
+			theme,
+			snapshot: { id: "mixed-height", title: "Mixed height", columns: [{ id: "one", label: "One", cards }] },
+			done: vi.fn(),
+		});
+		for (let index = 0; index < 6; index++) board.handleInput("j");
+		expect(board.getFocus().cardId).toBe("card-6");
+		const focused = board.render(42).join("\n");
+		expect(focused).toContain("focus-start");
+		expect(focused).toContain("focus-tail");
+		board.handleInput("k");
+		expect(board.getFocus().cardId).toBe("card-5");
+		board.handleInput("j");
+		expect(board.getFocus().cardId).toBe("card-6");
+	});
+
+	it("returns only populated sparse rows below the safe board cap", () => {
+		const board = new FixtureBoard({
+			tui: { requestRender: vi.fn(), terminal: { rows: 40, columns: 120 } },
+			theme,
+			snapshot: {
+				id: "sparse",
+				title: "Sparse",
+				columns: [
+					{
+						id: "one",
+						label: "One",
+						cards: [{ id: "only", title: "Only card", summary: "Summary", actions: [] }],
+					},
+				],
+			},
+			done: vi.fn(),
+		});
+		const lines = board.render(120);
+		expect(lines).toHaveLength(4);
+		expect(lines.length).toBeLessThan(getBoardLayout(40, 120).maxRows);
+	});
 });

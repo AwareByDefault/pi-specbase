@@ -284,6 +284,51 @@ describe("workflow activity projection", () => {
 		expect(composeWorkflowActivity(canonical, "/registered/acme", "acme", store).columns[0]!.cards).toHaveLength(1);
 	});
 
+	it("keeps card activity compact while disclosing the complete recap in selected detail", () => {
+		const store = new WorkflowActivityStore();
+		const ctx = context("run-compact");
+		store.start(ctx);
+		store.stageStart({ kind: "skill", name: "implement", stageNumber: 2, skill: "implement" }, ctx);
+		store.loopStart(
+			{ kind: "skill", name: "implement", stageNumber: 2, skill: "implement" },
+			{
+				kind: "fanout",
+				units: [
+					{ label: "task one", prompt: "one" },
+					{ label: "task two", prompt: "two" },
+				],
+			},
+			ctx,
+		);
+		store.unitStart(
+			{ kind: "skill", name: "implement", stageNumber: 2, skill: "implement" },
+			{ role: "produce", index: 1, unitId: "two", label: "task two", skill: "implement" },
+			ctx,
+		);
+		const completeActivity = formatWorkflowActivity(store.get("/project", "acme", "change-1")!);
+		const composed = composeWorkflowActivity(board(), "/project", "acme", store);
+		const card = composed.columns[0]!.cards[0]!;
+		expect(card.summary).toContain(completeActivity);
+		expect(card.activity).toContain("RPIV running");
+		expect(card.activity).not.toContain("stage implement");
+		expect(card.activity).not.toContain("units 0/2");
+		expect(card.activity).not.toContain("run run-compact");
+
+		const rendered = new FixtureBoard({
+			tui: { requestRender: vi.fn(), terminal: { rows: 40, columns: 120 } },
+			theme: makeTheme() as unknown as Theme,
+			snapshot: composed,
+			done: vi.fn(),
+		});
+		const surface = rendered.render(120).join("\n");
+		expect(surface).toContain("RPIV running");
+		expect(surface).not.toContain("stage implement");
+		expect(surface).not.toContain("run run-compact");
+		rendered.handleInput("\r");
+		const detail = rendered.render(120).join("\n");
+		expect(detail).toContain(completeActivity);
+	});
+
 	it("bounds terminal recap cache entries without evicting live runs", () => {
 		const store = new WorkflowActivityStore(2);
 		for (const id of ["one", "two", "three"]) {

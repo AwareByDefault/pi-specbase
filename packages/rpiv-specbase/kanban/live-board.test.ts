@@ -15,6 +15,21 @@ import type { BoardSnapshot } from "./types.js";
 
 const theme = makeTheme() as unknown as Theme;
 
+type CanonicalStack = { readonly id: string; readonly position: number; readonly total: number };
+type CanonicalStackContext = Readonly<Record<string, unknown>>;
+type StackAwareBoardCard = {
+	readonly stack?: CanonicalStack;
+	readonly stackLabel?: string;
+	readonly stackContext?: CanonicalStackContext;
+};
+type StackAwareApi = SpecbasePublicApi & {
+	readonly getChangeStackContext: (input: Readonly<Record<string, unknown>>) => Promise<CanonicalStackContext>;
+};
+
+function stackCard(card: unknown): StackAwareBoardCard {
+	return card as StackAwareBoardCard;
+}
+
 function canonicalSnapshot(options: { empty?: boolean; project?: string } = {}): CanonicalKanbanSnapshot {
 	const change = {
 		kind: "change" as const,
@@ -43,7 +58,7 @@ function canonicalSnapshot(options: { empty?: boolean; project?: string } = {}):
 		diagnostic: null,
 	};
 	return {
-		version: 3,
+		version: 4,
 		project: { name: options.project ?? "canonical-project" },
 		summary: {
 			acceptedSpecs: 1,
@@ -78,11 +93,11 @@ function canonicalSnapshot(options: { empty?: boolean; project?: string } = {}):
 
 function fakeApi(snapshot: CanonicalKanbanSnapshot = canonicalSnapshot()): SpecbasePublicApi {
 	return {
-		KANBAN_BOARD_VERSION: 3,
+		KANBAN_BOARD_VERSION: 4,
 		DIRECT_ACTION_CATALOG_VERSION: 1,
 		deriveKanbanBoard: vi.fn(async () => snapshot),
 		validateKanbanBoardSnapshot: vi.fn((value, version) =>
-			version === 3 && value === snapshot
+			version === 4 && value === snapshot
 				? { valid: true as const, snapshot, diagnostics: [] as const }
 				: {
 						valid: false as const,
@@ -154,7 +169,7 @@ describe("live Specbase board", () => {
 		});
 		await nearest.load();
 		expect(nearestApi.deriveKanbanBoard).toHaveBeenCalledWith("/nearest/project");
-		expect(nearestApi.validateKanbanBoardSnapshot).toHaveBeenCalledWith(expect.anything(), 3);
+		expect(nearestApi.validateKanbanBoardSnapshot).toHaveBeenCalledWith(expect.anything(), 4);
 
 		const registeredApi = fakeApi();
 		const registered = await createLiveBoardSource({ kind: "store", storeId: "acme" }, "/ignored", registeredApi);
@@ -197,7 +212,7 @@ describe("live Specbase board", () => {
 		expect(presentLive).not.toHaveBeenCalled();
 	});
 
-	it("projects every canonical lane and spec by exact identity while retaining source objects", () => {
+	it("projects all seven canonical v4 work lanes while omitting accepted-spec cards", () => {
 		const canonical = canonicalSnapshot();
 		const projected = projectCanonicalSnapshot(canonical, "acme", "store acme");
 		expect(projected.source).toBe(canonical);
@@ -209,7 +224,6 @@ describe("live Specbase board", () => {
 			"implementing",
 			"reviewing",
 			"archived",
-			"specs",
 		]);
 		const implementing = projected.columns.find((column) => column.id === "implementing")!;
 		expect(implementing.source).toBe(canonical.lanes.implementing);
@@ -220,8 +234,55 @@ describe("live Specbase board", () => {
 		});
 		expect(implementing.cards[0]!.source).toBe(canonical.lanes.implementing[0]);
 		expect(projected.notices).toEqual(["board_warning: Board warning Next step: Inspect it"]);
-		expect(projected.columns.at(-1)?.cards[0]?.id).toBe("behavior.specbase-kanban");
+		expect(projected.columns.some((column) => column.id === "specs")).toBe(false);
 		expect(projected.title).toContain("1 diagnostics");
+	});
+
+	it("preserves exact v4 stack data, shares one stable rail label, and requests context only for stacked cards", async () => {
+		const base = canonicalSnapshot();
+		const stack: CanonicalStack = { id: "delivery-rail", position: 2, total: 3 };
+		const stacked = { ...base.lanes.implementing[0]!, stack };
+		const unstacked = { ...stacked, id: "change-unstacked", title: "Unstacked change", stack: undefined };
+		const canonical = {
+			...base,
+			lanes: { ...base.lanes, proposed: [unstacked], implementing: [stacked] },
+		};
+		const fullContext: CanonicalStackContext = Object.freeze({
+			id: "delivery-rail",
+			members: ["change-foundation", "change-stable-id", "change-follow-up"],
+			predecessor: "change-foundation",
+			successor: "change-follow-up",
+		});
+		const api = Object.assign(fakeApi(canonical), {
+			getChangeStackContext: vi.fn(async () => fullContext),
+		}) as unknown as StackAwareApi;
+		const source = await createLiveBoardSource({ kind: "store", storeId: "acme" }, "/ignored", api);
+		const projected = await source.load();
+		const projectedStacked = projected.columns.find((column) => column.id === "implementing")!.cards[0]!;
+		const projectedUnstacked = projected.columns.find((column) => column.id === "proposed")!.cards[0]!;
+
+		expect(api.getChangeStackContext).toHaveBeenCalledTimes(1);
+		expect(stackCard(projectedStacked).stack).toBe(stack);
+		expect(stackCard(projectedStacked).stackLabel).toBe(stack.id);
+		expect(stackCard(projectedStacked).stackContext).toBe(fullContext);
+		expect(stackCard(projectedUnstacked).stack).toBeUndefined();
+		expect(stackCard(projectedUnstacked).stackLabel).toBeUndefined();
+		expect(stackCard(projectedUnstacked).stackContext).toBeUndefined();
+
+		const board = new FixtureBoard({
+			tui: { requestRender: vi.fn(), terminal: { rows: 40, columns: 120 } },
+			theme,
+			snapshot: projected,
+			done: vi.fn(),
+		});
+		for (let index = 0; index < 4; index++) board.handleInput("l");
+		const rail = board.render(120).join("\n");
+		expect(rail).toContain("delivery-rail");
+		expect(rail).toContain("2/3");
+		board.handleInput("\r");
+		const detail = board.render(120).join("\n");
+		expect(detail).toContain("change-foundation");
+		expect(detail).toContain("change-follow-up");
 	});
 
 	it("shows a canonically recorded draft PR link in Reviewing card detail", () => {
