@@ -137,10 +137,15 @@ const workflow = defineWorkflow({
 				value.ownerId,
 			);
 			if (!lease.acquired) throw new Error(lease.reason);
-			attachRunToDeliveryLease(lease.path, value.ownerId, runId);
-			validateReadyResume(value.authorization.root, value.ownerId);
-			registerReadyRunId(value.ownerId, runId);
-			resumedLeases.set(runId, { path: lease.path, ownerId: value.ownerId });
+			try {
+				attachRunToDeliveryLease(lease.path, value.ownerId, runId);
+				validateReadyResume(value.authorization.root, value.ownerId);
+				registerReadyRunId(value.ownerId, runId);
+				resumedLeases.set(runId, { path: lease.path, ownerId: value.ownerId });
+			} catch (error) {
+				releaseDeliveryLease(lease.path, value.ownerId);
+				throw error;
+			}
 		},
 		after: ({ runId }) => {
 			const lease = resumedLeases.get(runId);

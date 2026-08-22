@@ -48,6 +48,41 @@ export const feedbackArtifact = (context: FeedbackContext, name: string, value: 
 	return path;
 };
 
+export async function validateFeedbackAuthorization(authorization: FeedbackAuthorization): Promise<void> {
+	const api = (await import("@awarebydefault/specbase")) as {
+		validateDirectActionIntent?: (
+			intent: unknown,
+			options: { root: string },
+		) => Promise<{
+			accepted: boolean;
+			descriptor?: { dispatch?: { kind?: string; capabilityId?: string; arguments?: Record<string, unknown> } };
+		}>;
+	};
+	if (!api.validateDirectActionIntent)
+		throw new Error("The installed Specbase API cannot revalidate PR-feedback authority.");
+	const result = await api.validateDirectActionIntent(
+		{
+			version: authorization.catalogVersion,
+			storeId: authorization.storeId,
+			workItemId: authorization.changeId,
+			actionId: authorization.actionId,
+			dispatchKind: "capability",
+		},
+		{ root: authorization.root },
+	);
+	const dispatch = result.descriptor?.dispatch;
+	const args = dispatch?.arguments;
+	if (
+		!result.accepted ||
+		dispatch?.kind !== "capability" ||
+		dispatch.capabilityId !== "specbase.pr-feedback" ||
+		args?.changeId !== authorization.changeId ||
+		JSON.stringify(args?.pullRequest) !== JSON.stringify(authorization.pullRequest) ||
+		(authorization.storeId === null ? "storeId" in (args ?? {}) : args?.storeId !== authorization.storeId)
+	)
+		throw new Error("Canonical Specbase state no longer authorizes this exact PR-feedback action.");
+}
+
 export function createFeedbackContext(
 	ownerId: string,
 	runId: string,
@@ -179,10 +214,8 @@ export function validateFeedbackClassificationScope(
 	const fixKeys = scope.classifications
 		.filter((item) => item.classification === "fix")
 		.map((item) => feedbackRevisionKey(item.revision));
-	if (fixKeys.length > 1 && scope.selectedRevisionKey !== null)
-		throw new Error("Multiple actionable feedback items require a separate explicit selection run.");
-	if (fixKeys.length === 1 && scope.selectedRevisionKey !== fixKeys[0])
-		throw new Error("The only actionable feedback revision must be selected explicitly.");
+	if (scope.selectedRevisionKey !== null && !fixKeys.includes(scope.selectedRevisionKey))
+		throw new Error("Selected feedback revision is not one of the frozen actionable fixes.");
 	if (fixKeys.length === 0 && scope.selectedRevisionKey !== null)
 		throw new Error("A non-actionable feedback set cannot select a revision for mutation.");
 	const paths = [...scope.evidencePaths, ...scope.productionPaths];
@@ -201,10 +234,15 @@ export function validateFeedbackClassificationScope(
 	return scope;
 }
 
-export function selectedFeedback(scope: FeedbackClassificationScope) {
+export function selectedFeedbackItems(scope: FeedbackClassificationScope) {
+	const fixes = scope.classifications.filter((item) => item.classification === "fix");
 	return scope.selectedRevisionKey
-		? (scope.classifications.find((item) => feedbackRevisionKey(item.revision) === scope.selectedRevisionKey) ?? null)
-		: null;
+		? fixes.filter((item) => feedbackRevisionKey(item.revision) === scope.selectedRevisionKey)
+		: fixes;
+}
+
+export function selectedFeedback(scope: FeedbackClassificationScope) {
+	return selectedFeedbackItems(scope)[0] ?? null;
 }
 
 export function verifyFeedbackRed(context: FeedbackContext, scope: FeedbackClassificationScope): FeedbackVerification {
@@ -419,8 +457,9 @@ export async function reobserveFeedbackScope(
 	head: string,
 	adapter: Pick<GitHubFeedbackAdapter, "read" | "readPullRequestHead">,
 ): Promise<readonly ReobserveOutcome[]> {
-	const selected = selectedFeedback(scope);
-	return selected ? [await reobserveFeedbackRevision(selected.revision, adapter, head)] : [];
+	return Promise.all(
+		selectedFeedbackItems(scope).map((item) => reobserveFeedbackRevision(item.revision, adapter, head)),
+	);
 }
 
 export async function replyFeedbackScope(
@@ -428,8 +467,7 @@ export async function replyFeedbackScope(
 	head: string,
 	adapter: Pick<GitHubFeedbackAdapter, "findReply" | "postReply" | "read" | "readPullRequestHead">,
 ): Promise<readonly FeedbackReply[]> {
-	const selected = selectedFeedback(scope);
-	return selected ? [await replyToFeedback(selected.revision, head, adapter)] : [];
+	return Promise.all(selectedFeedbackItems(scope).map((item) => replyToFeedback(item.revision, head, adapter)));
 }
 
 export async function resolveFeedbackScope(
@@ -438,9 +476,13 @@ export async function resolveFeedbackScope(
 	head: string,
 	adapter: Pick<GitHubFeedbackAdapter, "resolveThread" | "read" | "readPullRequestHead">,
 ): Promise<readonly FeedbackResolution[]> {
-	const selected = selectedFeedback(scope);
-	if (!selected || !replies[0]) return [];
-	return [await resolveFeedbackThread(selected.revision, replies[0], head, adapter)];
+	const selected = selectedFeedbackItems(scope);
+	return Promise.all(
+		selected.flatMap((item, index) => {
+			const reply = replies[index];
+			return reply ? [resolveFeedbackThread(item.revision, reply, head, adapter)] : [];
+		}),
+	);
 }
 
 void acknowledgeFeedback;

@@ -216,35 +216,34 @@ describe("PR-feedback host delivery", () => {
 		expect(() => verifyFeedbackRed(context, scope)).toThrow(/read\/verify allowlist/iu);
 	});
 
-	it("stops a multiple-fix capture without silently selecting one revision", () => {
+	it("freezes multiple actionable fixes into one combined scoped delivery", () => {
 		const { context } = fixture();
 		const first = context.snapshot.items[0]!;
 		const second = { ...first, commentId: "comment-2", threadId: "thread-2" };
 		context.snapshot.items.push(second);
-		expect(() =>
-			validateFeedbackClassificationScope(context, {
-				version: 1,
-				ownerId,
-				snapshotHeadSha: context.snapshot.headSha,
-				classifications: [
-					{
-						revision: { ...first, body: undefined, untrusted: undefined },
-						classification: "fix",
-						rationale: "first",
-						behaviorDefect: true,
-					},
-					{
-						revision: { ...second, body: undefined, untrusted: undefined },
-						classification: "fix",
-						rationale: "second",
-						behaviorDefect: true,
-					},
-				],
-				selectedRevisionKey: feedbackRevisionKey(first),
-				evidencePaths: ["evidence.txt"],
-				productionPaths: ["production.txt"],
-				commands: ["npm test"],
-			}),
-		).toThrow(/multiple actionable/iu);
+		const scope = validateFeedbackClassificationScope(context, {
+			version: 1,
+			ownerId,
+			snapshotHeadSha: context.snapshot.headSha,
+			classifications: [
+				{
+					revision: { ...first, body: undefined, untrusted: undefined },
+					classification: "fix",
+					rationale: "first",
+					behaviorDefect: true,
+				},
+				{
+					revision: { ...second, body: undefined, untrusted: undefined },
+					classification: "fix",
+					rationale: "second",
+					behaviorDefect: true,
+				},
+			],
+			selectedRevisionKey: null,
+			evidencePaths: ["evidence.txt"],
+			productionPaths: ["production.txt"],
+			commands: ["npm test"],
+		});
+		expect(scope.classifications.filter((item) => item.classification === "fix")).toHaveLength(2);
 	});
 });

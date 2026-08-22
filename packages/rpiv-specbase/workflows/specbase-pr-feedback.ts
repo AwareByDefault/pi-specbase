@@ -48,6 +48,7 @@ import {
 	resolveFeedbackScope,
 	selectedFeedback,
 	skipFeedbackRefactor,
+	validateFeedbackAuthorization,
 	validateFeedbackClassificationScope,
 	validateFeedbackResume,
 	verifyFeedbackGate,
@@ -148,10 +149,15 @@ const workflow = defineWorkflow({
 				value.ownerId,
 			);
 			if (!lease.acquired) throw new Error(lease.reason);
-			attachRunToDeliveryLease(lease.path, value.ownerId, runId);
-			validateFeedbackResume(value.authorization.root, value.ownerId);
-			feedbackRunIds.set(value.ownerId, runId);
-			resumedLeases.set(runId, { path: lease.path, ownerId: value.ownerId });
+			try {
+				attachRunToDeliveryLease(lease.path, value.ownerId, runId);
+				validateFeedbackResume(value.authorization.root, value.ownerId);
+				feedbackRunIds.set(value.ownerId, runId);
+				resumedLeases.set(runId, { path: lease.path, ownerId: value.ownerId });
+			} catch (error) {
+				releaseDeliveryLease(lease.path, value.ownerId);
+				throw error;
+			}
 		},
 		after: ({ runId }) => {
 			const lease = resumedLeases.get(runId);
@@ -167,6 +173,7 @@ const workflow = defineWorkflow({
 			onInvalid: "halt",
 			run: async ({ state }) => {
 				const value = launch(state.originalInput);
+				await validateFeedbackAuthorization(value.authorization);
 				const runId = feedbackRunIds.get(value.ownerId);
 				if (!runId) throw new Error("PR-feedback capture requires a lifecycle-assigned run ID.");
 				feedbackRunIds.delete(value.ownerId);
@@ -256,8 +263,9 @@ const workflow = defineWorkflow({
 		"remote-preflight": produces.script({
 			outputSchema: typeboxSchema(feedbackCheckpointJournalSchema),
 			onInvalid: "halt",
-			run: ({ state }) => {
+			run: async ({ state }) => {
 				const ctx = context(state);
+				await validateFeedbackAuthorization(ctx.authorization);
 				return output(
 					ctx,
 					"remote-preflight.json",
