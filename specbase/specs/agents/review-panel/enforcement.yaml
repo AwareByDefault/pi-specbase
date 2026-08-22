@@ -1,5 +1,7 @@
 bindings:
-  panel-review:
-    type: review
-    covers: [panel-covers-planes, panel-reviews-implemented-specs]
-    source: "specbase/config.yaml"
+  review-panel-projection-test:
+    type: test
+    covers:
+      - panel-covers-planes
+      - panel-reviews-implemented-specs
+    source: packages/rpiv-specbase/review-panel-governance.test.ts

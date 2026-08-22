@@ -2,9 +2,9 @@
 id: agents.specbase-draft-pr-delivery
 ---
 
-### Requirement: Review delivery workflow instrument
+### Requirement: Legacy draft delivery workflow instrument
 **ID:** `review-delivery-workflow-instrument`
-The repository-owned `specbase-draft-pr-delivery` workflow SHALL encode a resumable path from validated green local commits through the generated Specbase panel, typed disposition, bounded local fixes, final deterministic gate, safe push, draft pull request, canonical recording, and terminal Reviewing observation.
+The repository-owned `specbase-draft-pr-delivery` workflow SHALL encode a resumable legacy path from validated green local commits through generated panel, typed disposition, bounded local fixes, final deterministic gate, safe push, draft pull request, canonical draft observation, and terminal non-Reviewing state.
 
 #### Scenario: Workflow graph validates
 **ID:** `review-delivery-graph-validates`
@@ -61,17 +61,18 @@ The review-delivery workflow's remote skills SHALL compare current Git and GitHu
 - **WHEN** the remote skill command surface and workflow graph are inspected
 - **THEN** no force push, history rewrite, branch deletion, merge, or ready-for-review operation is reachable
 
-### Requirement: Canonical remote-result bridge instrument
+### Requirement: Canonical draft-result bridge instrument
 **ID:** `canonical-remote-result-bridge-instrument`
-The review-delivery workflow SHALL submit confirmed commit and draft-PR identities through the canonical Specbase action-result contract and SHALL treat the refreshed canonical board as the authority for Reviewing state.
+The legacy draft-delivery workflow SHALL submit confirmed commit and draft pull-request identities through the canonical Specbase action-result contract and SHALL treat refreshed canonical lifecycle as authority without assigning Reviewing to a draft.
 
 #### Scenario: Pi does not assign Reviewing locally
 **ID:** `pi-does-not-assign-reviewing-locally`
-- **WHEN** a draft PR is confirmed
-- **THEN** the workflow records the descriptor through the canonical result contract
+- **WHEN** a draft pull request is confirmed
+- **THEN** the workflow records the draft descriptor through the canonical result contract
 - **AND** the Pi activity overlay does not assign or persist a lifecycle column itself
 
-#### Scenario: Terminal path requires canonical observation
+#### Scenario: Terminal path preserves draft state
 **ID:** `terminal-path-requires-canonical-observation`
-- **WHEN** the workflow reports successful review delivery
-- **THEN** its terminal report includes the canonical Reviewing card identity and confirmed draft PR URL
+- **WHEN** the legacy workflow reports successful draft delivery
+- **THEN** its terminal report includes the canonical card identity and confirmed draft pull-request URL
+- **AND** it does not claim that the card is Reviewing

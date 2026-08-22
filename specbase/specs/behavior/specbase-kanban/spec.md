@@ -20,7 +20,7 @@ The Pi user SHALL be able to explicitly open a deterministic fixture-backed Spec
 
 ### Requirement: Keyboard board navigation
 **ID:** `keyboard-board-navigation`
-The Pi user SHALL be able to move focus among available lifecycle columns, cards, card details, and fixture actions using keyboard controls while the board remains open.
+The Pi user SHALL be able to move focus among available lifecycle columns, logical cards, card details, and fixture actions using keyboard controls while the board remains open, even when cards occupy different numbers of rendered rows.
 
 #### Scenario: Focus moves to an available card
 **ID:** `focus-moves-to-available-card`
@@ -33,6 +33,12 @@ The Pi user SHALL be able to move focus among available lifecycle columns, cards
 - **WHEN** the user navigates through a lifecycle column with no cards
 - **THEN** the board keeps a visible valid focus target
 - **AND** further navigation remains available
+
+#### Scenario: Wrapped cards retain logical navigation
+**ID:** `wrapped-cards-retain-logical-navigation`
+- **WHEN** the focused lane contains titles that render on one or two physical rows
+- **THEN** each `j` or `k` navigation action moves focus by exactly one logical card
+- **AND** the visible card window adjusts by rendered rows so the full focused card remains visible
 
 ### Requirement: Selected fixture action intent
 **ID:** `selected-fixture-action-intent`
@@ -73,13 +79,19 @@ The Pi user SHALL be able to open the nearest Specbase store from the current wo
 
 ### Requirement: Authoritative live board projection
 **ID:** `authoritative-live-board-projection`
-The live Pi kanban SHALL preserve the stable identities, lifecycle columns, progress, stack context, and diagnostics supplied by the canonical Specbase board snapshot.
+The live Pi kanban SHALL project validated canonical Kanban v4 actionable work lanes with their stable identities, lifecycle columns, progress, stack context, and diagnostics, and SHALL not render accepted specifications as kanban cards.
 
 #### Scenario: Pi and headless snapshots agree
 **ID:** `pi-and-headless-snapshots-agree`
 - **WHEN** the Pi board and the canonical headless board read the same store state
 - **THEN** equivalent work items have the same stable identities and lifecycle placement
 - **AND** their progress, stack context, and diagnostics agree
+
+#### Scenario: Accepted specifications are not work cards
+**ID:** `accepted-specifications-are-not-work-cards`
+- **WHEN** the selected store contains accepted specifications as well as actionable work
+- **THEN** the validated canonical v4 snapshot and Pi board project the actionable work lanes without an accepted-specification card lane
+- **AND** the accepted specifications remain available only through their canonical reference surfaces
 
 #### Scenario: Valid empty store is distinct from failure
 **ID:** `empty-store-is-distinct-from-failure`
@@ -254,37 +266,37 @@ Opening or refreshing a live board SHALL hydrate the latest correlated RPIV reca
 - **THEN** the card presents an interrupted or resumable state
 - **AND** it does not claim that the workflow is currently live or completed
 
-### Requirement: Authorized local delivery launch
+### Requirement: Authorized delivery-to-review launch
 **ID:** `authorized-local-delivery-launch`
-The kanban SHALL start local delivery only from a fresh canonical action authorization for the selected ready change and SHALL identify the repository, store, change, stack position, and pre-existing working-tree baseline before mutation.
+The kanban SHALL start composed delivery only from a fresh canonical `specbase.ready-to-review` authorization for the selected change and SHALL identify repository, store, change, stack position, canonical intent, and pre-existing working-tree baseline before mutation.
 
 #### Scenario: Ready change starts delivery
 **ID:** `ready-change-starts-delivery`
-- **WHEN** the user confirms a currently valid local-delivery action for a ready change
+- **WHEN** the user confirms the currently valid Deliver to human review action for a Ready change
 - **THEN** one correlated RPIV run starts for that change
-- **AND** its audit state identifies the selected change and run-start baseline
+- **AND** its audit state identifies the selected change, canonical intent, stack position, and run-start baseline
 
 #### Scenario: Authorization becomes stale
 **ID:** `delivery-authorization-becomes-stale`
-- **WHEN** fresh validation no longer authorizes local delivery for the selected change
+- **WHEN** fresh validation no longer authorizes delivery for the selected change
 - **THEN** no delivery run mutates the repository
 - **AND** the board reports the canonical rejection
 
-### Requirement: Evidence-first serial implementation
+### Requirement: Evidence-first RED then GREEN implementation
 **ID:** `evidence-first-serial-implementation`
-The local-delivery run SHALL implement the selected change's declared enforcement sources before its ordered task units and SHALL execute each completed unit's declared native verification before advancing.
+The composed delivery run SHALL review the governed change, implement only its declared executable evidence sources, prove the expected targeted RED state, commit that evidence checkpoint, then implement production tasks until the same declared evidence and repository gate are GREEN.
 
-#### Scenario: Declared source precedes tasks
+#### Scenario: Declared evidence produces RED first
 **ID:** `declared-source-precedes-tasks`
-- **WHEN** a ready change declares enforcement sources and implementation tasks
-- **THEN** the run completes the frozen source units before starting the frozen task units
-- **AND** the audit trail preserves each stable source and task identity in execution order
+- **WHEN** a Ready change declares executable evidence sources and implementation tasks
+- **THEN** a source-scoped child authors those sources before production implementation
+- **AND** the audit records an expected failing verification and atomic RED commit before any GREEN implementation commit
 
-#### Scenario: Unit verification fails
+#### Scenario: Unit verification fails unexpectedly
 **ID:** `unit-verification-fails`
-- **WHEN** an evidence or task unit cannot pass its declared native verification
-- **THEN** the run does not advance beyond that unit as though it succeeded
-- **AND** the failure is recorded with its stable unit identity and recovery reason
+- **WHEN** evidence cannot establish the planned failure or implementation cannot make declared verification green
+- **THEN** the run stops without advancing as though the checkpoint succeeded
+- **AND** it records the stable unit, command, exit result, and recovery reason
 
 ### Requirement: Green bounded local gate
 **ID:** `green-bounded-local-gate`
@@ -301,56 +313,57 @@ The local-delivery run SHALL advance toward review or commit only when strict Sp
 - **THEN** the run stops with the failed checks and stable run identity
 - **AND** it does not commit or report green delivery
 
-### Requirement: Reviewed atomic local commits
+### Requirement: Explicit checkpoint commits
 **ID:** `reviewed-atomic-local-commits`
-The local-delivery run SHALL review the run-owned green delta for local refactor opportunities, revalidate any applied local fix, and commit only scoped run-owned changes in coherent atomic commits.
+The composed delivery run SHALL preserve separate atomic RED and GREEN commits and MAY add a separate refactor commit only after proving the exact green checks remain green; every commit SHALL contain only run-owned paths allowed for that phase.
 
-#### Scenario: Local fix remains green
+#### Scenario: Refactor preserves green
 **ID:** `local-fix-remains-green`
-- **WHEN** local review identifies a bounded plan-conformant fix
-- **THEN** the run applies the fix and reruns the local gate before commit
+- **WHEN** a bounded refactor follows the GREEN implementation commit
+- **THEN** the run reruns the exact green checks before committing the refactor
+- **AND** the refactor commit remains distinct from RED and GREEN commits
 
 #### Scenario: Commits exclude baseline dirt
 **ID:** `commits-exclude-baseline-dirt`
-- **WHEN** the run creates local commits
-- **THEN** the commits contain only run-owned paths that passed the final gate
-- **AND** paths dirty before the run remain uncommitted
+- **WHEN** the run creates RED, GREEN, refactor, or later fix commits
+- **THEN** each commit contains only run-owned allowed paths for its recorded phase
+- **AND** paths dirty before the run remain excluded
 
 #### Scenario: Final local state is green
 **ID:** `final-local-state-is-green`
-- **WHEN** local delivery completes
-- **THEN** the card recap identifies the created local commits and a passing final gate
+- **WHEN** local implementation reaches the panel boundary
+- **THEN** the recap identifies RED, GREEN, and any refactor commits plus passing exact checks
 - **AND** the run-owned working-tree delta is clean
 
-### Requirement: Local-only recoverable boundary
+### Requirement: Recoverable checkpoint boundary
 **ID:** `local-only-recoverable-boundary`
-The local-delivery run SHALL preserve resumable failure state and MUST NOT push, open a pull request, merge, archive, invoke the Specbase review panel, or start a successor stack member.
+The composed delivery run SHALL preserve resumable checkpoint state, MAY leave an owned RED commit locally for recovery, and MUST NOT push, create or ready a pull request, archive, or launch a successor while current HEAD lacks a verified green attestation.
 
 #### Scenario: Run stops recoverably
 **ID:** `run-stops-recoverably`
-- **WHEN** readiness, implementation, validation, review, or commit cannot continue safely
-- **THEN** the card presents the stable run identity, stopped stage, and recovery reason
+- **WHEN** review, RED, implementation, GREEN, refactor, gate, panel, or publication preparation cannot continue safely
+- **THEN** the card presents the stable run identity, stopped stage, checkpoint journal, and recovery reason
 - **AND** completed audit units remain available to resume
 
-#### Scenario: Local completion stops before remote work
+#### Scenario: Red checkpoint stays local
 **ID:** `local-completion-stops-before-remote-work`
-- **WHEN** the run reaches green local commits
-- **THEN** it terminates without a push, pull request, merge, archive, review-panel run, or successor launch
+- **WHEN** current HEAD is the RED checkpoint or its green attestation is missing or stale
+- **THEN** no push, pull-request mutation, archive, or successor launch occurs
 
-### Requirement: Authorized review delivery launch
+### Requirement: Fresh authority before remote delivery
 **ID:** `authorized-review-delivery-launch`
-The kanban SHALL start review-and-draft-PR delivery only for a selected change whose canonical action remains valid and whose scoped local-delivery commits still pass the deterministic local gate.
+Before any push or pull-request mutation, the composed run SHALL freshly revalidate the original canonical action and confirm that current HEAD is the exact green, gated, panel-reviewed head owned by the run.
 
-#### Scenario: Green local change starts review delivery
+#### Scenario: Green current head reaches remote preflight
 **ID:** `green-local-change-starts-review-delivery`
-- **WHEN** the user confirms a currently valid review-and-draft-PR action for a green locally committed change
-- **THEN** one correlated RPIV run starts with the selected change and commit identities
+- **WHEN** the run reaches remote preflight with a fresh authorization and exact verified green head
+- **THEN** remote delivery continues under the same correlated run and immutable change identities
 
-#### Scenario: Local state is no longer green
+#### Scenario: Local or canonical state changed
 **ID:** `local-state-is-no-longer-green`
-- **WHEN** fresh preflight cannot confirm the selected commits, clean run-owned delta, or deterministic green gate
-- **THEN** the workflow stops before panel or remote mutation
-- **AND** the card presents the preflight failure
+- **WHEN** preflight cannot confirm authorization, commit ownership, clean run-owned delta, current-head gate, or panel footprint
+- **THEN** the workflow stops before remote mutation
+- **AND** the card presents the exact preflight failure
 
 ### Requirement: Machine-readable panel disposition
 **ID:** `machine-readable-panel-disposition`
@@ -402,47 +415,127 @@ The review-delivery run SHALL make the selected branch's verified HEAD available
 - **WHEN** publishing the verified HEAD would require force or the remote target is ambiguous
 - **THEN** the workflow stops without rewriting remote history
 
-### Requirement: Resume-safe draft pull request
+### Requirement: Resume-safe pull request readying
 **ID:** `resume-safe-draft-pull-request`
-The review-delivery run SHALL create or find exactly one GitHub draft pull request for the verified head and base branches and SHALL reuse that draft on resume.
+The composed delivery run SHALL create or find exactly one pull request for the verified head and base branches, safely reuse it on resume, and confirm that it is open and ready for human review before canonical recording.
 
-#### Scenario: Draft PR is created
+#### Scenario: Pull request is created and readied
 **ID:** `draft-pr-is-created`
 - **WHEN** the verified remote head has no matching open pull request
-- **THEN** the workflow creates one draft pull request and records its number, URL, base, and head identities
+- **THEN** the workflow creates one pull request, marks it ready for review, and records number, URL, base, head, and verified commit identities
 
-#### Scenario: Existing draft is reused
+#### Scenario: Existing pull request is reused
 **ID:** `existing-draft-is-reused`
-- **WHEN** a matching open draft pull request already exists
-- **THEN** the workflow returns that draft's canonical descriptor without creating another pull request
+- **WHEN** a matching open draft or ready pull request already exists
+- **THEN** the workflow reuses it, marks it ready if necessary, and does not create a duplicate
 
 #### Scenario: Conflicting PR state stops
 **ID:** `conflicting-pr-state-stops`
-- **WHEN** matching pull request state is duplicate, non-draft, closed, merged, or otherwise ambiguous
-- **THEN** the workflow stops for human resolution without creating a replacement draft
+- **WHEN** matching pull-request state is duplicate, closed, merged, head-mismatched, or otherwise ambiguous
+- **THEN** the workflow stops for human resolution without creating or mutating a replacement
 
 ### Requirement: Canonical Reviewing card outcome
 **ID:** `canonical-reviewing-card-outcome`
-After confirming the draft pull request, the workflow SHALL record the result through the canonical Specbase action contract and SHALL refresh until the card presents canonical Reviewing state with that PR link.
+After confirming the pull request is ready for human review, the workflow SHALL record the exact result through the canonical Specbase action contract and refresh until the card presents canonical Reviewing state with that link.
 
-#### Scenario: Draft PR is linked from Reviewing
+#### Scenario: Ready PR is linked from Reviewing
 **ID:** `draft-pr-is-linked-from-reviewing`
-- **WHEN** canonical action completion accepts the verified commit and draft PR descriptor
-- **THEN** the refreshed card appears in the canonical Reviewing lifecycle state
-- **AND** the card links to the confirmed draft pull request
+- **WHEN** canonical action completion accepts the verified commit and ready pull-request descriptor
+- **THEN** the refreshed card appears in canonical Reviewing
+- **AND** the card links to the confirmed pull request
 
 #### Scenario: Recording resumes without duplicate PR
 **ID:** `recording-resumes-without-duplicate-pr`
-- **WHEN** the draft PR exists but canonical recording or board refresh was interrupted
-- **THEN** resume reuses the existing draft and retries recording or refresh
-- **AND** no duplicate pull request is created
+- **WHEN** the ready pull request exists but canonical recording or board refresh was interrupted
+- **THEN** resume reuses the same pull request and retries idempotent recording or refresh
+- **AND** no duplicate pull request or readiness mutation is created
 
-### Requirement: Human-controlled post-PR boundary
+### Requirement: Human-controlled post-review boundary
 **ID:** `human-controlled-post-pr-boundary`
-The review-delivery run MUST NOT automatically mark the pull request ready, approve, merge, archive the change, delete the branch, or launch a successor stack member.
+The composed delivery run MUST NOT approve, merge, archive the change, delete the branch, or launch a successor stack member after reaching Reviewing.
 
 #### Scenario: Workflow stops at Reviewing
 **ID:** `workflow-stops-at-reviewing`
 - **WHEN** the card shows the linked canonical Reviewing state
 - **THEN** the workflow terminates successfully
-- **AND** merge, archive, branch deletion, and successor delivery remain separate human-controlled actions
+- **AND** feedback handling, merge, archive, branch deletion, and successor delivery remain separately authorized actions
+
+### Requirement: Stack context remains available
+**ID:** `stack-context-remains-available`
+The Pi kanban SHALL retain canonical stack identity, position, and total for every annotated work item, SHALL use that stable identity as the shared stack label, and MAY resolve full detail through the canonical stack-context API without recomputing membership.
+
+#### Scenario: Stack context survives projection
+**ID:** `stack-context-survives-projection`
+- **WHEN** a canonical Kanban v4 work item supplies stack identity, position, and total
+- **THEN** the projected card retains those exact values and presents one shared label for that identity
+- **AND** selected-card detail can present canonical stack context without inferring membership from files
+
+#### Scenario: Unstacked work remains usable
+**ID:** `unstacked-work-remains-usable`
+- **WHEN** a canonical work item supplies no stack context
+- **THEN** the board continues to present and navigate that work item
+- **AND** it does not invent stack position or shared-label data
+
+### Requirement: Reviewing feedback actions
+**ID:** `reviewing-feedback-actions`
+A Reviewing card with a canonical pull-request descriptor SHALL present only its currently valid canonical actions for Address PR feedback, comment-aware Explore, and human Archive, including any canonical blocker and remediation.
+
+#### Scenario: Reviewing card presents canonical actions
+**ID:** `reviewing-card-presents-feedback-actions`
+- **WHEN** the canonical action catalog makes feedback actions available for a Reviewing card
+- **THEN** the card presents their exact canonical identities and availability
+- **AND** it does not invent a command or additional remote action
+
+#### Scenario: Feedback action is blocked
+**ID:** `feedback-action-is-blocked`
+- **WHEN** the canonical catalog blocks one of the Reviewing feedback actions
+- **THEN** the card prevents its selection
+- **AND** it shows the canonical blocker and remediation
+
+### Requirement: Comment-aware feedback exploration
+**ID:** `comment-aware-feedback-explore`
+The selected comment-aware Explore action SHALL return control to Pi with the exact canonical feedback context for conversation and MUST NOT autonomously mutate the repository, GitHub, or Specbase lifecycle.
+
+#### Scenario: User explores selected feedback
+**ID:** `user-explores-selected-feedback`
+- **WHEN** the user confirms a currently valid Explore action for a selected PR comment or review thread
+- **THEN** Pi receives the exact canonical conversational invocation and feedback identity
+- **AND** no autonomous workflow or remote mutation is launched
+
+### Requirement: Revision-safe feedback resolution
+**ID:** `revision-safe-feedback-resolution`
+Address PR feedback SHALL report a frozen feedback revision as addressed only after its repository, pull request, namespace, comment or thread identity, revision, and pull-request head have been re-observed unchanged; a changed, deleted, or already-resolved revision SHALL be reported for re-observation rather than blindly acted on.
+
+#### Scenario: Unchanged resolvable review feedback is addressed
+**ID:** `unchanged-review-feedback-is-addressed`
+- **WHEN** an actionable frozen review-thread revision remains unchanged through final verification and publication
+- **THEN** the outcome identifies the fixing commit and reply
+- **AND** the unchanged resolvable thread is resolved
+
+#### Scenario: Feedback revision changed
+**ID:** `feedback-revision-changed`
+- **WHEN** re-observation finds an edited, deleted, already-resolved, or head-mismatched revision
+- **THEN** the outcome identifies that revision as requiring re-observation
+- **AND** no stale reply or resolution is claimed
+
+#### Scenario: General comment is addressed
+**ID:** `general-comment-is-replied-only`
+- **WHEN** an unchanged actionable feedback item is a general PR comment
+- **THEN** the outcome records an idempotent reply with the fixing commit
+- **AND** it does not resolve a review thread
+
+### Requirement: Human-controlled feedback archive
+**ID:** `human-controlled-feedback-archive`
+Addressing or exploring PR feedback MUST NOT archive a change; Archive SHALL remain a separately selected and confirmed human action.
+
+#### Scenario: Feedback delivery completes
+**ID:** `feedback-delivery-does-not-archive`
+- **WHEN** an Address PR feedback run completes, stops, or is resumed
+- **THEN** the Reviewing card remains governed by canonical lifecycle state
+- **AND** the run does not archive the change or select an Archive action
+
+#### Scenario: User archives explicitly
+**ID:** `user-archives-explicitly-after-feedback`
+- **WHEN** the user separately selects a currently valid Archive action
+- **THEN** canonical action validation governs that archive request
+- **AND** no feedback-workflow completion is treated as archive confirmation

@@ -13,6 +13,7 @@ bindings:
       - live-store-selection
       - authoritative-live-board-projection
       - identity-preserving-refresh
+      - stack-context-remains-available
     source: packages/rpiv-specbase/kanban/live-board.test.ts
   kanban-action-dispatch-test:
     type: test
@@ -51,3 +52,44 @@ bindings:
       - canonical-reviewing-card-outcome
       - human-controlled-post-pr-boundary
     source: packages/rpiv-specbase/workflows/draft-pr-delivery.test.ts
+  ready-to-review-dispatch-tests:
+    type: test
+    covers: authorized-local-delivery-launch
+    source: packages/rpiv-specbase/kanban/action-dispatch.test.ts
+  ready-to-review-local-journey:
+    type: test
+    covers:
+      - evidence-first-serial-implementation
+      - reviewed-atomic-local-commits
+      - local-only-recoverable-boundary
+    source: packages/rpiv-specbase/workflows/specbase-local-delivery.test.ts
+  ready-to-review-remote-journey:
+    type: test
+    covers:
+      - authorized-review-delivery-launch
+      - resume-safe-draft-pull-request
+      - canonical-reviewing-card-outcome
+      - human-controlled-post-pr-boundary
+    source: packages/rpiv-specbase/workflows/draft-pr-delivery.test.ts
+  pr-feedback-card-actions-tests:
+    type: test
+    covers:
+      - reviewing-feedback-actions
+      - comment-aware-feedback-explore
+      - human-controlled-feedback-archive
+    source: packages/rpiv-specbase/kanban/pr-feedback-actions.test.ts
+  pr-feedback-resolution-tests:
+    type: test
+    covers: revision-safe-feedback-resolution
+    source: packages/rpiv-specbase/workflows/pr-feedback-delivery.test.ts
+  pr-feedback-card-actions-review:
+    type: review
+    covers:
+      - reviewing-feedback-actions
+      - comment-aware-feedback-explore
+      - human-controlled-feedback-archive
+    source: behavioural
+  pr-feedback-delivery-review:
+    type: review
+    covers: revision-safe-feedback-resolution
+    source: behavioural

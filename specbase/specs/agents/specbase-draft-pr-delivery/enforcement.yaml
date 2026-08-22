@@ -8,3 +8,9 @@ bindings:
       - idempotent-remote-instrument
       - canonical-remote-result-bridge-instrument
     source: packages/rpiv-specbase/workflows/specbase-draft-pr-delivery.test.ts
+  legacy-draft-lifecycle-tests:
+    type: test
+    covers:
+      - review-delivery-workflow-instrument
+      - canonical-remote-result-bridge-instrument
+    source: packages/rpiv-specbase/workflows/specbase-draft-pr-delivery.test.ts
