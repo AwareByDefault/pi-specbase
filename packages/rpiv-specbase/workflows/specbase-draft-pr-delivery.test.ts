@@ -9,7 +9,7 @@ const targets = (edge: unknown): readonly string[] =>
 	typeof edge === "function" ? ((edge as { targets?: readonly string[] }).targets ?? []) : [String(edge)];
 
 describe("specbase-draft-pr-delivery workflow contract", () => {
-	it("validates typed preflight, panel, remote, PR, and canonical observation stages", () => {
+	it("validates the retained legacy draft recovery workflow", () => {
 		expect(specbaseDraftPrWorkflow.name).toBe(DRAFT_PR_WORKFLOW_NAME);
 		expect(validateWorkflow(specbaseDraftPrWorkflow).filter((issue) => issue.severity === "error")).toEqual([]);
 		for (const stage of [
@@ -53,7 +53,7 @@ describe("specbase-draft-pr-delivery workflow contract", () => {
 		);
 	});
 
-	it("requires final gate before exact push, draft PR, canonical record, and Reviewing observation", () => {
+	it("requires final gate before exact push, draft PR, and canonical draft observation", () => {
 		expect(targets(specbaseDraftPrWorkflow.edges["final-gate"])).toEqual(
 			expect.arrayContaining(["push", "stop-final-gate"]),
 		);
@@ -66,7 +66,7 @@ describe("specbase-draft-pr-delivery workflow contract", () => {
 		);
 	});
 
-	it("contains no force, merge, ready, archive, deletion, or successor operation", () => {
+	it("contains no force, readying, merge, archive, deletion, or successor operation", () => {
 		const source = readFileSync(fileURLToPath(new URL("./specbase-draft-pr-delivery.ts", import.meta.url)), "utf8");
 		expect(source).not.toMatch(
 			/force-with-lease|--force|\bmerge\b|ready-for-review|branch deletion|specbase-archive|successor/iu,

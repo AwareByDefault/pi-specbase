@@ -270,6 +270,20 @@ describe("spawnChild — fresh child", () => {
 		expect(customTools.map((tool) => tool.name)).toEqual(expect.arrayContaining(["read", "bash", "write"]));
 	});
 
+	it("passes the immutable stage prompt into phase-specific tool construction", async () => {
+		const createToolDefinitions = vi.fn(() => []);
+		const policy = {
+			allowedToolNames: ["read"],
+			excludedToolNames: [],
+			additionalSkillPaths: [],
+			createToolDefinitions,
+		} as never;
+		const { deps } = makeDeps({ toolPolicy: policy });
+		const host = new SdkWorkflowHost(deps);
+		await host.spawnChild({ prompt: "specbase-author-red-evidence", withSession: async () => "ok" });
+		expect(createToolDefinitions).toHaveBeenCalledWith("/work", "specbase-author-red-evidence");
+	});
+
 	it("fails before child creation when a workflow tool policy cannot construct its confined tools", async () => {
 		const policy = {
 			allowedToolNames: ["read"],

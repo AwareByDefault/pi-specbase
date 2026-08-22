@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -24,11 +24,17 @@ vi.mock("@juicesharp/rpiv-workflow", async (importOriginal) => ({
 	readLastStage: mocks.readLastStage,
 }));
 
+import {
+	resolveWorkflowChildToolPolicy,
+	SPECBASE_READY_TO_REVIEW_WORKFLOW,
+} from "../../rpiv-pi/extensions/rpiv-core/local-delivery-tool-policy.js";
 import { deliveryLeasePath, readDeliveryLease } from "./lease.js";
 import {
 	__resetSpecbaseLocalDeliveryRegistration,
 	createDraftPrCapabilityHandler,
 	createLocalDeliveryCapabilityHandler,
+	createReadyToReviewCapabilityHandler,
+	createSpecbaseCapabilityDispatcher,
 } from "./register.js";
 
 const roots: string[] = [];
@@ -51,7 +57,7 @@ const request = {
 		},
 	},
 	intent: {
-		version: 4,
+		version: 2,
 		storeId: "acme",
 		workItemId: "change-1",
 		actionId: "deliver-local",
@@ -61,7 +67,7 @@ const request = {
 		kind: "programmatic" as const,
 		source: "rpiv-specbase" as const,
 		meta: {
-			catalogVersion: 4,
+			catalogVersion: 2,
 			storeId: "acme",
 			workItemId: "change-1",
 			actionId: "deliver-local",
@@ -78,6 +84,83 @@ afterEach(() => {
 	for (const path of roots.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
+async function editWithPhase(
+	cwd: string,
+	ownerId: string,
+	prompt: string,
+	path: string,
+	oldText: string,
+	newText: string,
+): Promise<void> {
+	const policy = resolveWorkflowChildToolPolicy(SPECBASE_READY_TO_REVIEW_WORKFLOW, JSON.stringify({ ownerId }), cwd)!;
+	const tool = policy.createToolDefinitions(cwd, prompt).find((candidate) => candidate.name === "edit")!;
+	await tool.execute("edit", { path, edits: [{ oldText, newText }] }, undefined, undefined, {} as never);
+}
+
+describe("specbase.ready-to-review phase policy", () => {
+	it("confines evidence, implementation, and read-only children to their host-owned mutation phases", async () => {
+		const cwd = root();
+		const ownerId = "owner-phase";
+		const ownerDir = join(cwd, ".rpiv", "artifacts", "specbase-ready-to-review", ownerId);
+		mkdirSync(ownerDir, { recursive: true });
+		mkdirSync(join(cwd, "test"), { recursive: true });
+		mkdirSync(join(cwd, "src"), { recursive: true });
+		mkdirSync(join(cwd, "specbase", "changes", "change-1"), { recursive: true });
+		writeFileSync(join(cwd, "test", "evidence.test.ts"), "RED\n");
+		writeFileSync(join(cwd, "src", "implementation.ts"), "before\n");
+		writeFileSync(join(cwd, "specbase", "changes", "change-1", "tasks.md"), "- [ ] task\n");
+		const deliveryPath = join(ownerDir, "delivery-context.json");
+		writeFileSync(deliveryPath, JSON.stringify({ evidenceUnits: [{ paths: ["test/evidence.test.ts"] }] }));
+		writeFileSync(
+			join(ownerDir, "ready-context.json"),
+			JSON.stringify({ deliveryContextPath: deliveryPath, productionRoots: ["src"] }),
+		);
+		const policy = resolveWorkflowChildToolPolicy(
+			SPECBASE_READY_TO_REVIEW_WORKFLOW,
+			JSON.stringify({ ownerId }),
+			cwd,
+		)!;
+		expect(policy.allowedToolNamesForPrompt?.("specbase-implement-green")).not.toContain("Agent");
+		expect(policy.allowedToolNamesForPrompt?.("specbase-review-panel")).toContain("Agent");
+
+		await editWithPhase(cwd, ownerId, "specbase-author-red-evidence", "test/evidence.test.ts", "RED", "RED changed");
+		expect(readFileSync(join(cwd, "test", "evidence.test.ts"), "utf8")).toContain("RED changed");
+		await expect(
+			editWithPhase(cwd, ownerId, "specbase-author-red-evidence", "src/implementation.ts", "before", "bad"),
+		).rejects.toThrow(/undeclared evidence mutation/iu);
+
+		await editWithPhase(cwd, ownerId, "specbase-implement-green", "src/implementation.ts", "before", "after");
+		await expect(
+			editWithPhase(cwd, ownerId, "specbase-implement-green", "test/evidence.test.ts", "RED", "weakened"),
+		).rejects.toThrow(/frozen evidence mutation/iu);
+		await expect(
+			editWithPhase(
+				cwd,
+				ownerId,
+				"specbase-implement-green",
+				"specbase/changes/change-1/tasks.md",
+				"- [ ] task",
+				"- [x] task",
+			),
+		).rejects.toThrow(/frozen planning artifact mutation/iu);
+		await expect(
+			editWithPhase(cwd, ownerId, "specbase-review-panel", "src/implementation.ts", "after", "bad"),
+		).rejects.toThrow(/read-only ready-to-review phase/iu);
+	});
+});
+
+describe("current Specbase capability dispatcher", () => {
+	it("registers only the canonical ready-to-review capability and rejects legacy board dispatch", async () => {
+		const cwd = root();
+		const dispatcher = createSpecbaseCapabilityDispatcher({} as never, { cwd } as never, cwd);
+		await expect(dispatcher.dispatch(request)).resolves.toEqual({
+			accepted: false,
+			reason: "No dispatcher is registered for capability 'specbase.local-delivery'.",
+		});
+		expect(mocks.runWorkflowByName).not.toHaveBeenCalled();
+	});
+});
+
 describe("specbase.local-delivery capability handler", () => {
 	it("starts the built-in programmatically and preserves exact correlation metadata", async () => {
 		const cwd = root();
@@ -86,7 +169,7 @@ describe("specbase.local-delivery capability handler", () => {
 			expect(name).toBe("specbase-local-delivery");
 			expect(JSON.parse(input)).toMatchObject({
 				authorization: {
-					catalogVersion: 4,
+					catalogVersion: 2,
 					actionId: "deliver-local",
 					changeId: "change-1",
 					storeId: "acme",
@@ -116,6 +199,42 @@ describe("specbase.local-delivery capability handler", () => {
 		expect(
 			readDeliveryLease(deliveryLeasePath({ root: cwd, storeId: "acme", changeId: "change-1" })),
 		).toBeUndefined();
+	});
+});
+
+describe("specbase.ready-to-review capability handler", () => {
+	it("launches the single canonical delivery workflow with the exact fresh action", async () => {
+		const cwd = root();
+		const readyRequest = {
+			...request,
+			descriptor: {
+				...request.descriptor,
+				actionId: "ready-to-review",
+				dispatch: {
+					kind: "capability" as const,
+					capabilityId: "specbase.ready-to-review" as const,
+					arguments: { changeId: "change-1", storeId: "acme" },
+				},
+			},
+			intent: { ...request.intent, actionId: "ready-to-review" },
+			trigger: { ...request.trigger, meta: { ...request.trigger.meta, actionId: "ready-to-review" } },
+		};
+		mocks.runWorkflowByName.mockImplementation(async (_ctx, name, input, options) => {
+			options.lifecycle.onWorkflowStart({ runId: "ready-run" });
+			expect(name).toBe("specbase-ready-to-review");
+			expect(JSON.parse(input)).toMatchObject({
+				authorization: {
+					capabilityId: "specbase.ready-to-review",
+					actionId: "ready-to-review",
+					changeId: "change-1",
+					root: cwd,
+				},
+			});
+			return { runId: "ready-run", success: true, stagesCompleted: 1, termination: "completed" };
+		});
+		await expect(
+			createReadyToReviewCapabilityHandler({} as never, { cwd } as never, cwd)(readyRequest),
+		).resolves.toEqual({ accepted: true, runId: "ready-run" });
 	});
 });
 

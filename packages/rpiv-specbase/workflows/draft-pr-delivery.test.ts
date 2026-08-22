@@ -11,6 +11,7 @@ import type { DraftPrContext, PanelDisposition } from "./draft-pr-contracts.js";
 import {
 	captureDraftPrContext,
 	ensureDraftPullRequest,
+	ensureReadyPullRequest,
 	type GitHubAdapter,
 	type PullRequestRecord,
 	publishVerifiedHead,
@@ -115,6 +116,9 @@ class FakeGitHub implements GitHubAdapter {
 				headSha: "a".repeat(40),
 			},
 		];
+	}
+	async markReady(_repository: string, number: number) {
+		this.prs = this.prs.map((pr) => (pr.number === number ? { ...pr, draft: false } : pr));
 	}
 }
 
@@ -270,6 +274,18 @@ describe("draft PR delivery functional boundary", () => {
 			ensureDraftPullRequest(context(root, head), expected, "run-1", cleanPanel, github, async () => expected),
 		).resolves.toMatchObject({ number: 7, headSha: expected });
 		expect(github.creates).toBe(1);
+	});
+
+	it("creates or reuses one matching PR and confirms ready state", async () => {
+		const { root, head } = repo();
+		const github = new FakeGitHub();
+		await expect(
+			ensureReadyPullRequest(context(root, head), "a".repeat(40), "run-1", cleanPanel, github, async () =>
+				"a".repeat(40),
+			),
+		).resolves.toMatchObject({ number: 7, state: "ready" });
+		expect(github.creates).toBe(1);
+		expect(github.prs[0]?.draft).toBe(false);
 	});
 
 	it("rechecks the exact remote head immediately before creating a draft", async () => {

@@ -18,7 +18,7 @@ import {
 } from "./live-source.js";
 
 const selection: DirectActionSelection = Object.freeze({
-	version: 1,
+	version: 2,
 	storeId: "acme",
 	workItemId: "change-1",
 	actionId: "apply",
@@ -38,11 +38,24 @@ const skillDescriptor: DirectActionDescriptor = {
 };
 
 function capabilityDescriptor(
-	capabilityId: "specbase.local-delivery" | "specbase.draft-pr-delivery" = "specbase.local-delivery",
+	capabilityId:
+		| "specbase.local-delivery"
+		| "specbase.draft-pr-delivery"
+		| "specbase.ready-to-review" = "specbase.local-delivery",
 ): DirectActionDescriptor {
 	return {
-		actionId: capabilityId === "specbase.local-delivery" ? "deliver-local" : "open-draft-pr",
-		label: capabilityId === "specbase.local-delivery" ? "Deliver locally" : "Open draft PR",
+		actionId:
+			capabilityId === "specbase.ready-to-review"
+				? "ready-to-review"
+				: capabilityId === "specbase.local-delivery"
+					? "deliver-local"
+					: "open-draft-pr",
+		label:
+			capabilityId === "specbase.ready-to-review"
+				? "Deliver to human review"
+				: capabilityId === "specbase.local-delivery"
+					? "Deliver locally"
+					: "Open draft PR",
 		availability: "available",
 		blocker: null,
 		dispatch: { kind: "capability", capabilityId, arguments: { changeId: "change-1", storeId: "acme" } },
@@ -91,7 +104,7 @@ function canonicalSnapshot(): CanonicalKanbanSnapshot {
 
 function catalog(workItemId: string, actions: readonly DirectActionDescriptor[] = []): DirectActionCatalog {
 	return {
-		version: 1,
+		version: 2,
 		target: { storeId: "acme", workItemId, position: workItemId.startsWith("idea") ? "idea" : "active" },
 		actions,
 		diagnostics: [],
@@ -107,7 +120,7 @@ function fakeApi(
 	const snapshot = canonicalSnapshot();
 	return {
 		KANBAN_BOARD_VERSION: 4,
-		DIRECT_ACTION_CATALOG_VERSION: 1,
+		DIRECT_ACTION_CATALOG_VERSION: 2,
 		deriveKanbanBoard: vi.fn(async () => snapshot),
 		validateKanbanBoardSnapshot: vi.fn(() => ({ valid: true as const, snapshot, diagnostics: [] as const })),
 		getChangeStackContext: vi.fn(async () => null),
@@ -316,7 +329,7 @@ describe("action dispatch coordinator", () => {
 		expect(sendUserMessage).toHaveBeenCalledTimes(1);
 	});
 
-	it.each(["specbase.local-delivery", "specbase.draft-pr-delivery"] as const)(
+	it.each(["specbase.ready-to-review", "specbase.local-delivery", "specbase.draft-pr-delivery"] as const)(
 		"passes the exact %s descriptor and immutable correlation to the injected registry",
 		async (capabilityId) => {
 			const descriptor = capabilityDescriptor(capabilityId);
@@ -352,7 +365,7 @@ describe("action dispatch coordinator", () => {
 				kind: "programmatic",
 				source: "rpiv-specbase",
 				meta: {
-					catalogVersion: 1,
+					catalogVersion: 2,
 					storeId: "acme",
 					workItemId: "change-1",
 					actionId: descriptor.actionId,
