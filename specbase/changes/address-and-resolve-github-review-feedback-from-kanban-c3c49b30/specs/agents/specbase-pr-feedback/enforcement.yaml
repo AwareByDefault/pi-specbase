@@ -1,0 +1,16 @@
+bindings:
+  pr-feedback-workflow-contract-review:
+    type: review
+    covers: feedback-workflow-instrument
+    source: enforcement
+  pr-feedback-delivery-review:
+    type: review
+    covers:
+      - frozen-untrusted-feedback-instrument
+      - feedback-classification-and-evidence-instrument
+      - idempotent-feedback-publication-instrument
+    source: enforcement
+  pr-feedback-host-policy-review:
+    type: review
+    covers: strict-feedback-host-policy-instrument
+    source: enforcement

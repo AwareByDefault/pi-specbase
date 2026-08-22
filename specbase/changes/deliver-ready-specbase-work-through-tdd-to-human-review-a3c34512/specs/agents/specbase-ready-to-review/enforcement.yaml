@@ -1,0 +1,17 @@
+bindings:
+  ready-to-review-workflow-tests:
+    type: test
+    covers:
+      - ready-to-review-workflow-instrument
+      - tdd-checkpoint-journal-instrument
+    source: packages/rpiv-specbase/workflows/specbase-local-delivery.test.ts
+  ready-to-review-remote-tests:
+    type: test
+    covers:
+      - ready-review-panel-instrument
+      - green-only-remote-bridge-instrument
+    source: packages/rpiv-specbase/workflows/specbase-draft-pr-delivery.test.ts
+  ready-to-review-policy-tests:
+    type: test
+    covers: phase-confined-child-instruments
+    source: packages/rpiv-specbase/workflows/capability-handler.test.ts

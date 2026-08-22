@@ -1,0 +1,16 @@
+bindings:
+  ready-to-review-dispatch-tests:
+    type: test
+    covers: authorized-local-delivery-launch
+    source: packages/rpiv-specbase/kanban/action-dispatch.test.ts
+  ready-to-review-tdd-journey:
+    type: test
+    covers:
+      - evidence-first-serial-implementation
+      - reviewed-atomic-local-commits
+      - local-only-recoverable-boundary
+      - authorized-review-delivery-launch
+      - resume-safe-draft-pull-request
+      - canonical-reviewing-card-outcome
+      - human-controlled-post-pr-boundary
+    source: packages/rpiv-specbase/workflows/specbase-draft-pr-delivery.test.ts

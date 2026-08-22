@@ -1,0 +1,1 @@
+Follow-up to the archived Pi Kanban spike: repair review-panel governance, render compact wrapped stack rails, deliver Ready work with explicit RED/GREEN/refactor commits to a PR ready for human review, and address and resolve GitHub review feedback.

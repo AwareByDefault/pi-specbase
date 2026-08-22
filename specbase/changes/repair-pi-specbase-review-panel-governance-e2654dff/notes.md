@@ -1,0 +1,1 @@
+Observable outcome: the repository-owned review-panel governing pair resolves to a real configured conformance source so coverage can trust the panel used by delivery workflows. Defers UI and workflow changes.

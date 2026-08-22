@@ -1,0 +1,12 @@
+bindings:
+  pr-feedback-card-actions-review:
+    type: review
+    covers:
+      - reviewing-feedback-actions
+      - comment-aware-feedback-explore
+      - human-controlled-feedback-archive
+    source: behavioural
+  pr-feedback-delivery-review:
+    type: review
+    covers: revision-safe-feedback-resolution
+    source: behavioural

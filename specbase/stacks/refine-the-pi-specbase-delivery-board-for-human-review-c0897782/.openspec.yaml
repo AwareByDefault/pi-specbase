@@ -1,0 +1,8 @@
+id: refine-the-pi-specbase-delivery-board-for-human-review-c0897782
+summary: Refine the Pi Specbase delivery board for human review
+created: 2026-08-22
+members:
+  - repair-pi-specbase-review-panel-governance-e2654dff
+  - render-compact-wrapped-stack-aware-kanban-cards-25c58193
+  - deliver-ready-specbase-work-through-tdd-to-human-review-a3c34512
+  - address-and-resolve-github-review-feedback-from-kanban-c3c49b30
