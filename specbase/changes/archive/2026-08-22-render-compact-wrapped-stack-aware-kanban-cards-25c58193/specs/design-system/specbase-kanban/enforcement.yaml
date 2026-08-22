@@ -1,0 +1,9 @@
+bindings:
+  kanban-presentation-review:
+    type: review
+    covers:
+      - chat-preserving-board-presentation
+      - pi-native-visual-language
+      - compact-card-presentation
+      - stack-rail-context-presentation
+    source: design

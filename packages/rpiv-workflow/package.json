@@ -75,6 +75,7 @@
 		"skill-contract.ts",
 		"skill-contracts/",
 		"routing.ts",
+		"run-status.ts",
 		"runner/",
 		"semaphore.ts",
 		"startup.ts",

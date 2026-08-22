@@ -1,0 +1,1 @@
+Observable outcome: Reviewing cards can fetch immutable GitHub review-thread revisions, route implementation fixes or Explore, commit and push green fixes, reply with exact commits, resolve unchanged threads idempotently, or archive by human choice.

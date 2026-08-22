@@ -1,0 +1,12 @@
+bindings:
+  draft-pr-delivery-outcome-test:
+    type: test
+    covers:
+      - authorized-review-delivery-launch
+      - machine-readable-panel-disposition
+      - bounded-panel-fixes-with-final-gate
+      - idempotent-safe-push
+      - resume-safe-draft-pull-request
+      - canonical-reviewing-card-outcome
+      - human-controlled-post-pr-boundary
+    source: packages/rpiv-specbase/workflows/draft-pr-delivery.test.ts

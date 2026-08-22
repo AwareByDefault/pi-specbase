@@ -1,0 +1,8 @@
+bindings:
+  fixture-kanban-interaction-test:
+    type: test
+    covers:
+      - explicit-demo-board
+      - keyboard-board-navigation
+      - selected-fixture-action-intent
+    source: packages/rpiv-specbase/kanban/fixture-board.test.ts

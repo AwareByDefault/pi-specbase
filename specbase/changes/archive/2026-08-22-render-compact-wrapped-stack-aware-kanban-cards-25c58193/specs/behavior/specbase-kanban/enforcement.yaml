@@ -1,0 +1,17 @@
+bindings:
+  fixture-kanban-interaction-test:
+    type: test
+    covers:
+      - explicit-demo-board
+      - keyboard-board-navigation
+      - selected-fixture-action-intent
+    source: packages/rpiv-specbase/kanban/fixture-board.test.ts
+  live-kanban-board-test:
+    type: test
+    covers:
+      - explicit-demo-board
+      - live-store-selection
+      - authoritative-live-board-projection
+      - identity-preserving-refresh
+      - stack-context-remains-available
+    source: packages/rpiv-specbase/kanban/live-board.test.ts

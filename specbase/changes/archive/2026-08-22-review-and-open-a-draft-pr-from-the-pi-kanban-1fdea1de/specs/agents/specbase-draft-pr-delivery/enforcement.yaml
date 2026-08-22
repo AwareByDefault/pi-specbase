@@ -1,0 +1,10 @@
+bindings:
+  draft-pr-delivery-instrument-test:
+    type: test
+    covers:
+      - review-delivery-workflow-instrument
+      - generated-panel-invocation-instrument
+      - typed-panel-materialization-instrument
+      - idempotent-remote-instrument
+      - canonical-remote-result-bridge-instrument
+    source: packages/rpiv-specbase/workflows/specbase-draft-pr-delivery.test.ts

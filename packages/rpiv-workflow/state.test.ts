@@ -2,11 +2,14 @@ import { appendFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { acts, defineWorkflow } from "./api.js";
+import { readRunStatus } from "./run-status.js";
 import {
 	appendHeader,
 	appendLoopCap,
 	appendRoutingDecision,
 	appendStage,
+	appendWorkflowTerminal,
 	generateRunId,
 	type LoopCapRow,
 	listArtifacts,
@@ -664,6 +667,132 @@ describe("deep stage guard + readAllStagesForResume", () => {
 		if (!strict.ok) return;
 		expect(strict.rows).toEqual(readAllStages(tmpDir, runId));
 		expect(strict.rows).toHaveLength(2);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// summarizeRun — terminal-state projection (post-mortem recap)
+// ---------------------------------------------------------------------------
+
+describe("readRunStatus", () => {
+	const workflow = defineWorkflow({
+		name: "delivery",
+		start: "plan",
+		stages: {
+			plan: acts({ skill: "plan" }),
+			implement: acts({ skill: "implement" }),
+		},
+		edges: { plan: "implement", implement: "stop" },
+	});
+	const header = (runId: string) =>
+		appendHeader(tmpDir, {
+			runId,
+			workflow: workflow.name,
+			input: "ship it",
+			ts: "2026-08-21T10:00:00Z",
+			v: 2,
+		});
+	const stage = (runId: string, value: Omit<WorkflowStage, "session" | "ts">) =>
+		appendStage(tmpDir, runId, { session: null, ts: "2026-08-21T10:01:00Z", ...value });
+
+	it("reports a header-only durable run as pending", async () => {
+		header("pending");
+		await expect(readRunStatus(tmpDir, "pending", workflow)).resolves.toEqual({
+			status: "pending",
+			terminal: false,
+			resumable: false,
+		});
+	});
+
+	it("never calls an interrupted run completed merely because its last stage completed", async () => {
+		header("interrupted");
+		stage("interrupted", { stageNumber: 1, stage: "plan", skill: "plan", status: "completed" });
+		await expect(readRunStatus(tmpDir, "interrupted", workflow)).resolves.toMatchObject({
+			status: "interrupted",
+			terminal: false,
+			resumable: true,
+			lastStage: "plan",
+		});
+	});
+
+	it("requires a durable run terminal marker before reporting natural completion", async () => {
+		header("completed");
+		stage("completed", { stageNumber: 1, stage: "plan", skill: "plan", status: "completed" });
+		stage("completed", { stageNumber: 2, stage: "implement", skill: "implement", status: "completed" });
+		await expect(readRunStatus(tmpDir, "completed", workflow)).resolves.toMatchObject({
+			status: "interrupted",
+			terminal: false,
+			resumable: true,
+		});
+		appendWorkflowTerminal(tmpDir, "completed", {
+			type: "workflow-terminal",
+			outcome: "completed",
+			ts: "2026-08-21T10:03:00Z",
+			resumeSafe: false,
+		});
+		await expect(readRunStatus(tmpDir, "completed", workflow)).resolves.toMatchObject({
+			status: "completed",
+			terminal: true,
+			resumable: false,
+			lastStage: "implement",
+		});
+	});
+
+	it("honors terminal resume safety independently from the last stage", async () => {
+		header("unsafe-failure");
+		stage("unsafe-failure", {
+			stageNumber: 1,
+			stage: "plan",
+			skill: "plan",
+			status: "failed",
+			errMsg: "write dropped",
+		});
+		appendWorkflowTerminal(tmpDir, "unsafe-failure", {
+			type: "workflow-terminal",
+			outcome: "failed",
+			ts: "2026-08-21T10:03:00Z",
+			error: "write dropped",
+			resumeSafe: false,
+		});
+		await expect(readRunStatus(tmpDir, "unsafe-failure", workflow)).resolves.toMatchObject({
+			status: "failed",
+			terminal: true,
+			resumable: false,
+			reason: "write dropped",
+		});
+	});
+
+	it.each([
+		["failed", "failed", "implementation failed"],
+		["aborted", "aborted", "operator aborted"],
+		["cancelled", "skipped", "operator cancelled"],
+	] as const)("preserves the %s terminal outcome and reason", async (runId, persisted, reason) => {
+		header(runId);
+		stage(runId, { stageNumber: 1, stage: "plan", skill: "plan", status: persisted, errMsg: reason });
+		await expect(readRunStatus(tmpDir, runId, workflow)).resolves.toMatchObject({
+			status: runId,
+			terminal: true,
+			resumable: true,
+			reason,
+		});
+	});
+
+	it("preserves a routed stop instead of presenting completion", async () => {
+		header("stopped");
+		stage("stopped", { stageNumber: 1, stage: "plan", skill: "plan", status: "completed" });
+		appendRoutingDecision(tmpDir, "stopped", {
+			type: "routing",
+			fromStageIndex: 0,
+			fromStage: "plan",
+			decision: "stop",
+			note: "approval missing",
+			ts: "2026-08-21T10:02:00Z",
+		});
+		await expect(readRunStatus(tmpDir, "stopped", workflow)).resolves.toMatchObject({
+			status: "stopped",
+			terminal: true,
+			reason: "stopped at plan: approval missing",
+		});
 	});
 });
 

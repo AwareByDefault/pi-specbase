@@ -1,0 +1,7 @@
+bindings:
+  review-panel-projection-test:
+    type: test
+    covers:
+      - panel-covers-planes
+      - panel-reviews-implemented-specs
+    source: packages/rpiv-specbase/review-panel-governance.test.ts

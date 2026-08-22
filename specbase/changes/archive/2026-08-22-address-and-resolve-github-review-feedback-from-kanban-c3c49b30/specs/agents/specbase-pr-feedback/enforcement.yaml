@@ -1,0 +1,31 @@
+bindings:
+  pr-feedback-workflow-contract-tests:
+    type: test
+    covers: feedback-workflow-instrument
+    source: packages/rpiv-specbase/workflows/specbase-pr-feedback.test.ts
+  pr-feedback-delivery-tests:
+    type: test
+    covers:
+      - frozen-untrusted-feedback-instrument
+      - feedback-classification-and-evidence-instrument
+      - idempotent-feedback-publication-instrument
+    source: packages/rpiv-specbase/workflows/pr-feedback-execution.test.ts
+  pr-feedback-host-policy-tests:
+    type: test
+    covers: strict-feedback-host-policy-instrument
+    source: packages/rpiv-specbase/workflows/pr-feedback-host-policy.test.ts
+  pr-feedback-workflow-contract-review:
+    type: review
+    covers: feedback-workflow-instrument
+    source: enforcement
+  pr-feedback-delivery-review:
+    type: review
+    covers:
+      - frozen-untrusted-feedback-instrument
+      - feedback-classification-and-evidence-instrument
+      - idempotent-feedback-publication-instrument
+    source: enforcement
+  pr-feedback-host-policy-review:
+    type: review
+    covers: strict-feedback-host-policy-instrument
+    source: enforcement

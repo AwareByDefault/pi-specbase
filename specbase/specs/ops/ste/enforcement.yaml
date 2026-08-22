@@ -1,0 +1,9 @@
+bindings:
+  ste-doc-gate:
+    type: command
+    covers: [ste-is-the-writing-standard, ste-lint-is-the-adopted-tool]
+    source: "README.md"
+  ste-clarity-review:
+    type: review
+    covers: ste-is-the-writing-standard
+    source: "README.md"

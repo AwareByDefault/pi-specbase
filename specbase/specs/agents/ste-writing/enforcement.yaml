@@ -1,0 +1,5 @@
+bindings:
+  ste-writing-review:
+    type: review
+    covers: ste-writing-skill-exists
+    source: ".pi/skills/ste-writing/SKILL.md"

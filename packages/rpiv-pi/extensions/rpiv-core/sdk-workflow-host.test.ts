@@ -119,6 +119,7 @@ vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
 });
 
 import { __resetLaneToolDefs, getCachedToolDef } from "./lane-tool-defs.js";
+import { resolveWorkflowChildToolPolicy, SPECBASE_LOCAL_DELIVERY_WORKFLOW } from "./local-delivery-tool-policy.js";
 import {
 	__resetRunLaneRegistry,
 	getLane,
@@ -252,6 +253,62 @@ describe("spawnChild — fresh child", () => {
 		// The def (renderers included) survives the child's teardown — the disk-jsonl
 		// transcript fallback resolves it via lane-transcript-disk's RenderSource.
 		expect(getCachedToolDef("todo")).toBe(todoDef);
+	});
+
+	it("applies a workflow-specific allowlist, denylist, and restricted bash override at child creation", async () => {
+		const policy = resolveWorkflowChildToolPolicy(SPECBASE_LOCAL_DELIVERY_WORKFLOW);
+		const { deps } = makeDeps({ toolPolicy: policy });
+		const host = new SdkWorkflowHost(deps);
+
+		await host.spawnChild({ prompt: "p", withSession: async () => "ok" });
+
+		const passed = createAgentSessionMock.mock.calls[0][0] as Record<string, unknown>;
+		expect(passed.tools).toEqual(policy?.allowedToolNames);
+		expect(passed.excludeTools).toEqual(policy?.excludedToolNames);
+		expect(resourceLoaders[0].opts.additionalSkillPaths).toEqual(policy?.additionalSkillPaths);
+		const customTools = passed.customTools as Array<{ name?: string }>;
+		expect(customTools.map((tool) => tool.name)).toEqual(expect.arrayContaining(["read", "bash", "write"]));
+	});
+
+	it("passes the immutable stage prompt into phase-specific tool construction", async () => {
+		const createToolDefinitions = vi.fn(() => []);
+		const policy = {
+			allowedToolNames: ["read"],
+			excludedToolNames: [],
+			additionalSkillPaths: [],
+			createToolDefinitions,
+		} as never;
+		const { deps } = makeDeps({ toolPolicy: policy });
+		const host = new SdkWorkflowHost(deps);
+		await host.spawnChild({ prompt: "specbase-author-red-evidence", withSession: async () => "ok" });
+		expect(createToolDefinitions).toHaveBeenCalledWith("/work", "specbase-author-red-evidence");
+	});
+
+	it("fails before child creation when a workflow tool policy cannot construct its confined tools", async () => {
+		const policy = {
+			allowedToolNames: ["read"],
+			excludedToolNames: [],
+			additionalSkillPaths: [],
+			createToolDefinitions: () => {
+				throw new Error("invalid policy root");
+			},
+		} as never;
+		const { deps } = makeDeps({ toolPolicy: policy });
+		const host = new SdkWorkflowHost(deps);
+		await expect(host.spawnChild({ prompt: "p", withSession: async () => "ok" })).rejects.toThrow(
+			"invalid policy root",
+		);
+		expect(createAgentSessionMock).not.toHaveBeenCalled();
+	});
+
+	it("leaves tool filtering absent for every existing workflow", async () => {
+		const { deps } = makeDeps();
+		const host = new SdkWorkflowHost(deps);
+		await host.spawnChild({ prompt: "p", withSession: async () => "ok" });
+		const passed = createAgentSessionMock.mock.calls[0][0] as Record<string, unknown>;
+		expect(passed).not.toHaveProperty("tools");
+		expect(passed).not.toHaveProperty("excludeTools");
+		expect(passed).not.toHaveProperty("customTools");
 	});
 
 	it("sends the initial prompt exactly once and returns the withSession result", async () => {

@@ -1,0 +1,23 @@
+bindings:
+  pr-feedback-card-actions-tests:
+    type: test
+    covers:
+      - reviewing-feedback-actions
+      - comment-aware-feedback-explore
+      - human-controlled-feedback-archive
+    source: packages/rpiv-specbase/kanban/pr-feedback-actions.test.ts
+  pr-feedback-resolution-tests:
+    type: test
+    covers: revision-safe-feedback-resolution
+    source: packages/rpiv-specbase/workflows/pr-feedback-delivery.test.ts
+  pr-feedback-card-actions-review:
+    type: review
+    covers:
+      - reviewing-feedback-actions
+      - comment-aware-feedback-explore
+      - human-controlled-feedback-archive
+    source: behavioural
+  pr-feedback-delivery-review:
+    type: review
+    covers: revision-safe-feedback-resolution
+    source: behavioural

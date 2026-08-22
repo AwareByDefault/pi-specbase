@@ -1,0 +1,1 @@
+Observable outcome: one Ready-card action performs spec review, evidence-source RED commit, implementation GREEN commit, optional refactor commit, deterministic gates, generated panel/fixes, safe push, and a PR confirmed ready for human review.

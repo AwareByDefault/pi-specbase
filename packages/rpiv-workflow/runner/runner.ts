@@ -34,12 +34,14 @@ import {
 import { pruneOrphanedChildSessions } from "../sessions/index.js";
 import {
 	appendHeader,
+	appendWorkflowTerminal,
 	type ClaimResult,
 	claimName,
 	generateRunId,
 	readAllStages,
 	releaseName,
 	STATE_SCHEMA_VERSION,
+	summarizeRun,
 	type WorkflowHeader,
 } from "../state/index.js";
 import { childSessionsDir } from "../state/paths.js";
@@ -94,6 +96,25 @@ async function executeRun(
 			? { droppedFailureRows: state.telemetry.droppedFailureRows }
 			: {}),
 	};
+
+	const recap = summarizeRun(run.cwd, run.runId);
+	const terminalStatus = recap?.outcome === "stopped" ? "stopped" : state.termination.status;
+	if (terminalStatus !== "running") {
+		const written = appendWorkflowTerminal(run.cwd, run.runId, {
+			type: "workflow-terminal",
+			outcome: terminalStatus,
+			ts: nowIso(),
+			resumeSafe:
+				run.workflow.resumable !== false &&
+				state.telemetry.droppedFailureRows.length === 0 &&
+				terminalStatus !== "completed" &&
+				terminalStatus !== "stopped",
+			...(recap?.failureReason || state.termination.error
+				? { error: recap?.failureReason ?? state.termination.error }
+				: {}),
+		});
+		if (!written) ctx.ui.notify("Workflow settled, but its terminal audit marker could not be persisted.", "warning");
+	}
 
 	await run.lifecycle.fire(ctx, "onWorkflowEnd", result, lifecycleCtxFor(run));
 	return result;
@@ -317,6 +338,13 @@ export async function resumeWorkflow(
 ): Promise<RunWorkflowResult> {
 	const { workflow, header } = options;
 	const cwd = ctx.cwd;
+	if (workflow.resumable === false) {
+		return {
+			stagesCompleted: 0,
+			success: false,
+			error: `Workflow '${workflow.name}' is non-resumable; start a new canonically authorized run.`,
+		};
+	}
 
 	const recon = await reconstructState(cwd, workflow, header);
 	if (!recon.ok) {
@@ -328,36 +356,49 @@ export async function resumeWorkflow(
 		return { stagesCompleted: 0, success: false, error: resumeRefusalError(recon, header.workflow) };
 	}
 
-	// Detach to the executor host — the SAME wiring as live (resume-detach
-	// parity). After the
-	// reconstruct refusal so a refused resume builds no host, but BEFORE
-	// `buildRunContext`/`executeRun` so every resumed stage (single-stage reattach,
-	// pending-fanout re-dispatch, or a cold-routed continue fork) runs against the
-	// real executor, not the bare launcher ctx. Same run id ⇒ same childSessionsDir,
-	// so reattach/fork resolve the original run's persisted child sessions.
-	const { execCtx, resolveModel, readSessionBranch, signal, dispose } = await detachExecutor(ctx, cwd, header.runId, {
-		...options,
-		name: header.name ?? header.workflow,
-		workflow: header.workflow,
-		input: header.input,
-	});
-
-	// `buildRunContext` + `selectResumeEntry` are INSIDE the try so a throw in either
-	// still runs `dispose` (tap-leak parity with `runWorkflow`).
+	const resumeContext = { cwd, runId: header.runId, input: header.input };
 	try {
+		await workflow.resume?.before(resumeContext);
+	} catch (error) {
+		return {
+			stagesCompleted: 0,
+			success: false,
+			error: `Workflow '${workflow.name}' resume preflight failed: ${error instanceof Error ? error.message : String(error)}`,
+		};
+	}
+
+	let dispose: (() => void) | undefined;
+	try {
+		// Detach only after replay ownership is acquired. If host construction or
+		// execution fails, the workflow-specific after hook still releases it.
+		const execution = await detachExecutor(ctx, cwd, header.runId, {
+			...options,
+			name: header.name ?? header.workflow,
+			workflow: header.workflow,
+			input: header.input,
+		});
+		dispose = execution.dispose;
 		const run = buildRunContext(
 			cwd,
 			workflow,
-			{ ...options, resolveModel, readSessionBranch, signal },
 			{
-				runId: header.runId, // SAME run — new rows append to the same file
+				...options,
+				resolveModel: execution.resolveModel,
+				readSessionBranch: execution.readSessionBranch,
+				signal: execution.signal,
+			},
+			{
+				runId: header.runId,
 				state: recon.state,
 				visited: recon.visited,
-				trigger: { kind: "command", name: "wf", meta: { resumedFrom: options.ref } },
+				trigger: header.trigger
+					? { ...header.trigger, meta: { ...header.trigger.meta, resumedFrom: options.ref } }
+					: { kind: "command", name: "wf", meta: { resumedFrom: options.ref } },
 			},
 		);
-		return await executeRun(execCtx, run, selectResumeEntry(execCtx, recon, run));
+		return await executeRun(execution.execCtx, run, selectResumeEntry(execution.execCtx, recon, run));
 	} finally {
-		dispose?.(); // unsubscribe the onTerminalInput tap — parity with runWorkflow
+		dispose?.();
+		await workflow.resume?.after?.(resumeContext);
 	}
 }

@@ -49,6 +49,11 @@ export function stateFilePath(cwd: string, runId: string): string {
 	return join(runsDir(cwd), `${runId}.jsonl`);
 }
 
+/** Internal settled-run sidecar; public readers expose its projection only. */
+export function terminalFilePath(cwd: string, runId: string): string {
+	return join(runsDir(cwd), `${runId}.terminal.json`);
+}
+
 /** Per-run directory holding each detached child's persisted session file,
  *  keyed by SessionRef.id — `.rpiv/workflows/runs/<runId>/sessions/`. The flat
  *  `<runId>.jsonl` trail stays a sibling under `runsDir`. INTERNAL — not on the

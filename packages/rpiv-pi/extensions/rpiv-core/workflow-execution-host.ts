@@ -21,6 +21,7 @@ import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { BranchEntry, ModelSelection, WorkflowHostContext } from "@juicesharp/rpiv-workflow";
 import { isLaneRelayUiContext } from "./lane-relay-ui.js";
+import { resolveWorkflowChildToolPolicy } from "./local-delivery-tool-policy.js";
 import { loadModelsConfig, resolveMaxConcurrency, resolveStageModel } from "./models-config.js";
 import { getFocusedRun, getLane, recordRun, retireRun, setLaneAbort } from "./run-lane-registry.js";
 import { SdkWorkflowHost } from "./sdk-workflow-host.js";
@@ -88,6 +89,7 @@ export function createWorkflowExecution(
 			"rpiv: session_start capture missing — ensure registerSessionCapture runs before the first /wf run",
 		);
 	}
+	const toolPolicy = resolveWorkflowChildToolPolicy(workflow, input, observer.cwd);
 	const host = new SdkWorkflowHost({
 		live: observer,
 		modelRegistry, // session_start capture (real ctx field)
@@ -98,6 +100,9 @@ export function createWorkflowExecution(
 		runId,
 		childSessionsDir, // resolved by the runner; rpiv-pi does not synthesize the path
 		maxConcurrency: resolveMaxConcurrency(loadModelsConfig()), // config-driven background-lane cap (default 4)
+		// Only the Specbase local-delivery built-in receives the restrictive child
+		// tool policy. Undefined is intentional for every existing workflow.
+		toolPolicy,
 	});
 
 	// Record this run as a switchable lane at launch (appears in the ambient

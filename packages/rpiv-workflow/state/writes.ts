@@ -12,10 +12,10 @@
  *   appendRoutingDecision    — boolean; telemetry-not-state, dropped rows surface up.
  */
 
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { formatError } from "../internal-utils.js";
-import { runsDir, stateFilePath } from "./paths.js";
-import type { LoopCapRow, RoutingDecision, WorkflowHeader, WorkflowStage } from "./state.js";
+import { runsDir, stateFilePath, terminalFilePath } from "./paths.js";
+import type { LoopCapRow, RoutingDecision, WorkflowHeader, WorkflowStage, WorkflowTerminalRow } from "./state.js";
 
 /**
  * Shared append primitive: ensure the runs directory exists, then
@@ -72,4 +72,16 @@ export function appendRoutingDecision(cwd: string, runId: string, row: RoutingDe
  */
 export function appendLoopCap(cwd: string, runId: string, row: LoopCapRow): boolean {
 	return tryAppendJsonl(cwd, runId, row);
+}
+
+/** Append the run-level settled marker after all stage/child work has finished. */
+export function appendWorkflowTerminal(cwd: string, runId: string, row: WorkflowTerminalRow): boolean {
+	try {
+		mkdirSync(runsDir(cwd), { recursive: true });
+		writeFileSync(terminalFilePath(cwd, runId), `${JSON.stringify(row)}\n`, "utf-8");
+		return true;
+	} catch (e) {
+		console.warn(`[rpiv-workflow] workflow terminal state: ${formatError(e)}`);
+		return false;
+	}
 }

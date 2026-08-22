@@ -1,0 +1,7 @@
+bindings:
+  kanban-presentation-review:
+    type: review
+    covers:
+      - chat-preserving-board-presentation
+      - pi-native-visual-language
+    source: design

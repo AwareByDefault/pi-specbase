@@ -1,0 +1,16 @@
+bindings:
+  rpiv-specbase-boundary-test:
+    type: test
+    covers:
+      - pi-integration-ownership
+      - canonical-specbase-semantics-remain-external
+      - source-neutral-renderer-boundary
+    source: packages/rpiv-specbase/extension.test.ts
+  github-feedback-adapter-boundary-tests:
+    type: test
+    covers: github-feedback-adapter-boundary
+    source: packages/rpiv-specbase/workflows/pr-feedback-delivery.test.ts
+  github-feedback-adapter-boundary-review:
+    type: review
+    covers: github-feedback-adapter-boundary
+    source: architectural

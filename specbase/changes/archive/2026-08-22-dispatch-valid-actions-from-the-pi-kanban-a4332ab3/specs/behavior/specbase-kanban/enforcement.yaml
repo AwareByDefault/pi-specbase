@@ -1,0 +1,10 @@
+bindings:
+  kanban-action-dispatch-test:
+    type: test
+    covers:
+      - authoritative-card-actions
+      - exact-validated-intent-transport
+      - conversational-action-dispatch
+      - autonomous-action-dispatch
+      - dispatch-feedback-and-refresh
+    source: packages/rpiv-specbase/kanban/action-dispatch.test.ts

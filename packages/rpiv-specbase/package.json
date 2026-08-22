@@ -1,0 +1,65 @@
+{
+	"name": "@juicesharp/rpiv-specbase",
+	"version": "2.6.4",
+	"description": "Live and fixture-backed Specbase kanban for Pi.",
+	"keywords": [
+		"pi-package",
+		"pi-extension",
+		"rpiv",
+		"specbase",
+		"kanban"
+	],
+	"type": "module",
+	"license": "MIT",
+	"author": "juicesharp",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/juicesharp/rpiv-mono.git",
+		"directory": "packages/rpiv-specbase"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"test": "vitest run"
+	},
+	"files": [
+		"index.ts",
+		"extension.ts",
+		"workflow-bridge.ts",
+		"kanban/",
+		"workflows/",
+		"skills/",
+		"LICENSE",
+		"README.md",
+		"!**/*.test.ts"
+	],
+	"pi": {
+		"ambientObserver": true,
+		"extensions": [
+			"./index.ts"
+		],
+		"skills": [
+			"./skills"
+		]
+	},
+	"dependencies": {
+		"proper-lockfile": "^4.1.2",
+		"typebox": "^1.3.6"
+	},
+	"peerDependencies": {
+		"@awarebydefault/specbase": ">=2.0.0 <3",
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*",
+		"@juicesharp/rpiv-pi": "*",
+		"@juicesharp/rpiv-workflow": ">=2.6.4 <3"
+	},
+	"peerDependenciesMeta": {
+		"@awarebydefault/specbase": {
+			"optional": true
+		},
+		"@juicesharp/rpiv-workflow": {
+			"optional": true
+		}
+	}
+}
