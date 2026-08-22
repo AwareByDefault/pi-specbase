@@ -23,7 +23,7 @@ type StackAwareBoardCard = {
 	readonly stackContext?: CanonicalStackContext;
 };
 type StackAwareApi = SpecbasePublicApi & {
-	readonly getChangeStackContext: (input: Readonly<Record<string, unknown>>) => Promise<CanonicalStackContext>;
+	readonly getChangeStackContext: (root: string, memberId: string) => Promise<CanonicalStackContext>;
 };
 
 function stackCard(card: unknown): StackAwareBoardCard {
@@ -48,21 +48,10 @@ function canonicalSnapshot(options: { empty?: boolean; project?: string } = {}):
 			},
 		],
 	};
-	const spec = {
-		kind: "spec" as const,
-		id: "behavior.specbase-kanban",
-		locator: "behavior/specbase-kanban",
-		title: "behavior/specbase-kanban",
-		requirementCount: 3,
-		requirements: ["Live store selection", "Projection", "Refresh"],
-		diagnostic: null,
-	};
 	return {
 		version: 4,
 		project: { name: options.project ?? "canonical-project" },
 		summary: {
-			acceptedSpecs: 1,
-			requirements: 3,
 			openIdeas: 0,
 			lanes: {
 				proposed: 0,
@@ -84,7 +73,6 @@ function canonicalSnapshot(options: { empty?: boolean; project?: string } = {}):
 			reviewing: [],
 			archived: [],
 		},
-		specs: [spec],
 		diagnostics: options.empty
 			? []
 			: [{ source: "specbase", code: "board_warning", message: "Board warning", remediation: "Inspect it" }],
@@ -94,7 +82,7 @@ function canonicalSnapshot(options: { empty?: boolean; project?: string } = {}):
 function fakeApi(snapshot: CanonicalKanbanSnapshot = canonicalSnapshot()): SpecbasePublicApi {
 	return {
 		KANBAN_BOARD_VERSION: 4,
-		DIRECT_ACTION_CATALOG_VERSION: 1,
+		DIRECT_ACTION_CATALOG_VERSION: 2,
 		deriveKanbanBoard: vi.fn(async () => snapshot),
 		validateKanbanBoardSnapshot: vi.fn((value, version) =>
 			version === 4 && value === snapshot
@@ -105,8 +93,9 @@ function fakeApi(snapshot: CanonicalKanbanSnapshot = canonicalSnapshot()): Specb
 						diagnostics: [{ message: "Invalid snapshot", remediation: "Derive it again" }],
 					},
 		),
+		getChangeStackContext: vi.fn(async () => null),
 		getDirectActions: vi.fn(async ({ workItemId, storeId }) => ({
-			version: 1,
+			version: 2,
 			target: { storeId: storeId ?? null, workItemId, position: "active" as const },
 			actions: [],
 			diagnostics: [],
@@ -262,6 +251,7 @@ describe("live Specbase board", () => {
 		const projectedUnstacked = projected.columns.find((column) => column.id === "proposed")!.cards[0]!;
 
 		expect(api.getChangeStackContext).toHaveBeenCalledTimes(1);
+		expect(api.getChangeStackContext).toHaveBeenCalledWith("/registered/acme", "change-stable-id");
 		expect(stackCard(projectedStacked).stack).toBe(stack);
 		expect(stackCard(projectedStacked).stackLabel).toBe(stack.id);
 		expect(stackCard(projectedStacked).stackContext).toBe(fullContext);
@@ -285,12 +275,67 @@ describe("live Specbase board", () => {
 		expect(detail).toContain("change-follow-up");
 	});
 
-	it("shows a canonically recorded draft PR link in Reviewing card detail", () => {
+	it("keeps the validated board and rail when optional stack-detail hydration fails", async () => {
+		const base = canonicalSnapshot();
+		const canonical = {
+			...base,
+			lanes: {
+				...base.lanes,
+				implementing: [{ ...base.lanes.implementing[0]!, stack: { id: "delivery", position: 1, total: 2 } }],
+			},
+		};
+		const api = fakeApi(canonical);
+		vi.mocked(api.getChangeStackContext).mockRejectedValue(new Error("projection unavailable"));
+		const source = await createLiveBoardSource({ kind: "nearest" }, "/work", api);
+		const projected = await source.load();
+		const card = projected.columns.find((column) => column.id === "implementing")!.cards[0]!;
+		expect(stackCard(card).stack).toEqual({ id: "delivery", position: 1, total: 2 });
+		expect(stackCard(card).stackContext).toBeUndefined();
+		expect(projected.notices).toContainEqual(expect.stringContaining("projection unavailable"));
+	});
+
+	it("retains stacked archived PR context without requesting direct actions", async () => {
+		const base = canonicalSnapshot({ empty: true });
+		const archived = {
+			kind: "archive" as const,
+			id: "archived-change",
+			title: "Archived change",
+			archived: "2026-08-22",
+			tasks: { completed: 2, total: 2 },
+			stack: { id: "delivery", position: 2, total: 2 },
+			pullRequest: {
+				number: 42,
+				url: "https://github.com/acme/widget/pull/42",
+				repository: "acme/widget",
+				base: "main",
+				head: "feature/archived-change",
+				headSha: "a".repeat(40),
+				runId: "run-42",
+				state: "ready" as const,
+			},
+		};
+		const canonical = {
+			...base,
+			summary: { ...base.summary, lanes: { ...(base.summary.lanes as Record<string, number>), archived: 1 } },
+			lanes: { ...base.lanes, archived: [archived] },
+		};
+		const api = fakeApi(canonical);
+		vi.mocked(api.getChangeStackContext).mockResolvedValue({ id: "delivery", member: "archived-change" });
+		const source = await createLiveBoardSource({ kind: "nearest" }, "/work", api);
+		const projected = await source.load();
+		const card = projected.columns.find((column) => column.id === "archived")!.cards[0]!;
+		expect(api.getDirectActions).not.toHaveBeenCalled();
+		expect(api.getChangeStackContext).toHaveBeenCalledWith("/nearest/project", "archived-change");
+		expect(card.summary).toContain("ready PR #42");
+		expect(stackCard(card).stackContext).toEqual({ id: "delivery", member: "archived-change" });
+	});
+
+	it("shows a canonically recorded ready PR link in Reviewing card detail", () => {
 		const base = canonicalSnapshot();
 		const change = {
 			...base.lanes.implementing[0]!,
 			lifecycle: "reviewing" as const,
-			draftPullRequest: {
+			pullRequest: {
 				number: 42,
 				url: "https://github.com/acme/widget/pull/42",
 				repository: "acme/widget",
@@ -298,6 +343,7 @@ describe("live Specbase board", () => {
 				head: "feature/change",
 				headSha: "a".repeat(40),
 				runId: "run-42",
+				state: "ready" as const,
 			},
 		};
 		const canonical = {

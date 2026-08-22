@@ -6,9 +6,10 @@ import {
 	type DirectActionDiagnostic,
 	type DirectActionValidation,
 } from "./action-dispatch.js";
-import type { BoardAction, BoardCard, BoardColumn, BoardSnapshot } from "./types.js";
+import type { BoardAction, BoardCard, BoardColumn, BoardSnapshot, BoardStack, BoardStackContext } from "./types.js";
 
 export const SPECBASE_MODULE_ID = "@awarebydefault/specbase";
+const CANONICAL_KANBAN_VERSION = 4;
 
 export type LiveSourceRequest = { readonly kind: "nearest" } | { readonly kind: "store"; readonly storeId: string };
 
@@ -30,6 +31,7 @@ export interface CanonicalIdeaCard {
 	readonly title: string;
 	readonly created: string | null;
 	readonly members: readonly string[];
+	readonly stack?: BoardStack;
 	readonly [key: string]: unknown;
 }
 
@@ -41,7 +43,7 @@ export interface CanonicalChangeCard {
 	readonly artifacts: CanonicalProgress;
 	readonly tasks: CanonicalProgress;
 	readonly lifecycle: "proposed" | "enforcement" | "ready-to-apply" | "implementing" | "reviewing";
-	readonly draftPullRequest?: {
+	readonly pullRequest?: {
 		readonly number: number;
 		readonly url: string;
 		readonly repository: string;
@@ -49,8 +51,10 @@ export interface CanonicalChangeCard {
 		readonly head: string;
 		readonly headSha: string;
 		readonly runId: string;
+		readonly state: "draft" | "ready";
 	};
 	readonly diagnostics?: readonly CanonicalDiagnostic[];
+	readonly stack?: BoardStack;
 	readonly [key: string]: unknown;
 }
 
@@ -62,17 +66,17 @@ export interface CanonicalArchiveCard {
 	readonly tasks: CanonicalProgress;
 	readonly artifacts?: CanonicalProgress;
 	readonly diagnostics?: readonly CanonicalDiagnostic[];
-	readonly [key: string]: unknown;
-}
-
-export interface CanonicalSpecCard {
-	readonly kind: "spec";
-	readonly id: string;
-	readonly locator: string;
-	readonly title: string;
-	readonly requirementCount: number;
-	readonly requirements: readonly string[];
-	readonly diagnostic: string | null;
+	readonly pullRequest?: {
+		readonly number: number;
+		readonly url: string;
+		readonly repository: string;
+		readonly base: string;
+		readonly head: string;
+		readonly headSha: string;
+		readonly runId: string;
+		readonly state: "draft" | "ready";
+	};
+	readonly stack?: BoardStack;
 	readonly [key: string]: unknown;
 }
 
@@ -91,7 +95,6 @@ export interface CanonicalKanbanSnapshot {
 		readonly reviewing: readonly CanonicalChangeCard[];
 		readonly archived: readonly CanonicalArchiveCard[];
 	};
-	readonly specs: readonly CanonicalSpecCard[];
 	readonly diagnostics: readonly CanonicalDiagnostic[];
 }
 
@@ -108,6 +111,7 @@ export interface SpecbasePublicApi {
 	readonly DIRECT_ACTION_CATALOG_VERSION: number;
 	readonly deriveKanbanBoard: (root: string) => Promise<unknown>;
 	readonly validateKanbanBoardSnapshot: (value: unknown, requestedVersion: number) => CanonicalValidationResult;
+	readonly getChangeStackContext: (root: string, memberId: string) => Promise<BoardStackContext | null>;
 	readonly getDirectActions: (options: {
 		readonly root?: string;
 		readonly workItemId: string;
@@ -168,10 +172,11 @@ export async function loadSpecbasePublicApi(importer: DynamicImport = dynamicImp
 		throw new Error(`${SPECBASE_MODULE_ID} did not expose a module namespace.`);
 	const module = loaded as Record<string, unknown>;
 	const complete =
-		typeof module.KANBAN_BOARD_VERSION === "number" &&
+		module.KANBAN_BOARD_VERSION === CANONICAL_KANBAN_VERSION &&
 		typeof module.DIRECT_ACTION_CATALOG_VERSION === "number" &&
 		hasFunction(module, "deriveKanbanBoard") &&
 		hasFunction(module, "validateKanbanBoardSnapshot") &&
+		hasFunction(module, "getChangeStackContext") &&
 		hasFunction(module, "getDirectActions") &&
 		hasFunction(module, "validateDirectActionIntent") &&
 		hasFunction(module, "recordDirectActionResult") &&
@@ -179,7 +184,7 @@ export async function loadSpecbasePublicApi(importer: DynamicImport = dynamicImp
 		hasFunction(module, "resolveCurrentPlanningHomeSync");
 	if (!complete) {
 		throw new Error(
-			`${SPECBASE_MODULE_ID} is incompatible: expected the public kanban, direct-action, validation, nearest-root, and registered-store APIs. Next step: install a compatible @awarebydefault/specbase@^2 release and retry.`,
+			`${SPECBASE_MODULE_ID} is incompatible: expected canonical Kanban v4 plus the public stack-context, direct-action, validation, nearest-root, and registered-store APIs. Next step: install a compatible @awarebydefault/specbase@^2 release and retry.`,
 		);
 	}
 	return module as unknown as SpecbasePublicApi;
@@ -221,7 +226,7 @@ export async function createLiveBoardSource(
 		async load() {
 			await assertCurrent();
 			const value = await api.deriveKanbanBoard(resolved.storeRoot);
-			const validation = api.validateKanbanBoardSnapshot(value, api.KANBAN_BOARD_VERSION);
+			const validation = api.validateKanbanBoardSnapshot(value, CANONICAL_KANBAN_VERSION);
 			if (!validation.valid) {
 				throw new Error(
 					validation.diagnostics
@@ -233,10 +238,30 @@ export async function createLiveBoardSource(
 						.join(" "),
 				);
 			}
+			const cards = Object.values(validation.snapshot.lanes).flat();
+			// The canonical v4 snapshot owns membership; resolve richer detail once per annotated card.
+			const stackContextResults = await Promise.all(
+				cards
+					.filter((card) => card.stack)
+					.map(async (card) => {
+						try {
+							return {
+								id: card.id,
+								context: await api.getChangeStackContext(resolved.storeRoot, card.id),
+							};
+						} catch (error) {
+							return {
+								id: card.id,
+								context: null,
+								notice: `Stack detail for '${card.id}' is unavailable: ${errorMessage(error)}`,
+							};
+						}
+					}),
+			);
+			const stackContexts = new Map(stackContextResults.map((result) => [result.id, result.context] as const));
+			const stackNotices = stackContextResults.flatMap((result) => (result.notice ? [result.notice] : []));
 			// Archived cards are terminal and add no usable dispatch affordance.
-			const workCards = Object.values(validation.snapshot.lanes)
-				.flat()
-				.filter((card) => card.kind !== "archive");
+			const workCards = cards.filter((card) => card.kind !== "archive");
 			const catalogs = new Map(
 				await Promise.all(
 					workCards.map(
@@ -253,7 +278,14 @@ export async function createLiveBoardSource(
 			);
 			await assertCurrent();
 			await activity?.hydrate();
-			return projectCanonicalSnapshot(validation.snapshot, resolved.id, label, catalogs);
+			return projectCanonicalSnapshot(
+				validation.snapshot,
+				resolved.id,
+				label,
+				catalogs,
+				stackContexts,
+				stackNotices,
+			);
 		},
 	};
 }
@@ -277,21 +309,17 @@ export function projectCanonicalSnapshot(
 	sourceId: string,
 	sourceLabel: string,
 	catalogs: ReadonlyMap<string, DirectActionCatalog> = new Map(),
+	stackContexts: ReadonlyMap<string, BoardStackContext | null> = new Map(),
+	extraNotices: readonly string[] = [],
 ): BoardSnapshot {
 	const columns: BoardColumn[] = LANE_ORDER.map(([id, label]) => {
 		const cards = snapshot.lanes[id];
 		return {
 			id,
 			label,
-			cards: cards.map((card) => projectCanonicalCard(card, catalogs.get(card.id))),
+			cards: cards.map((card) => projectCanonicalCard(card, catalogs.get(card.id), stackContexts.get(card.id))),
 			source: cards,
 		};
-	});
-	columns.push({
-		id: "specs",
-		label: "Accepted specs",
-		cards: snapshot.specs.map((card) => projectCanonicalCard(card)),
-		source: snapshot.specs,
 	});
 	const diagnosticSuffix = snapshot.diagnostics.length > 0 ? ` · ${snapshot.diagnostics.length} diagnostics` : "";
 	return {
@@ -300,6 +328,7 @@ export function projectCanonicalSnapshot(
 		columns,
 		notices: [
 			...snapshot.diagnostics.map(formatDiagnostic),
+			...extraNotices,
 			...Array.from(catalogs.values()).flatMap((catalog) =>
 				catalog.diagnostics.map(
 					(diagnostic) => `${diagnostic.code}: ${diagnostic.message} Next step: ${diagnostic.remediation}`,
@@ -310,17 +339,28 @@ export function projectCanonicalSnapshot(
 	};
 }
 
-function projectCanonicalCard(card: CanonicalWorkCard | CanonicalSpecCard, catalog?: DirectActionCatalog): BoardCard {
+function projectCanonicalCard(
+	card: CanonicalWorkCard,
+	catalog?: DirectActionCatalog,
+	stackContext?: BoardStackContext | null,
+): BoardCard {
 	return {
 		id: card.id,
 		title: card.title,
 		summary: canonicalCardSummary(card),
 		actions: catalog ? canonicalActions(catalog) : [],
+		...(card.stack
+			? {
+					stack: card.stack,
+					stackLabel: card.stack.id,
+					...(stackContext ? { stackContext } : {}),
+				}
+			: {}),
 		source: card,
 	};
 }
 
-function canonicalCardSummary(card: CanonicalWorkCard | CanonicalSpecCard): string {
+function canonicalCardSummary(card: CanonicalWorkCard): string {
 	switch (card.kind) {
 		case "idea":
 			return `${card.created ?? "Created date unavailable"} · ${card.members.length} members`;
@@ -328,8 +368,8 @@ function canonicalCardSummary(card: CanonicalWorkCard | CanonicalSpecCard): stri
 			const diagnostics = card.diagnostics?.length
 				? ` · ${card.diagnostics.length} diagnostics · ${formatDiagnostic(card.diagnostics[0]!)}`
 				: "";
-			const pullRequest = card.draftPullRequest
-				? ` · PR #${card.draftPullRequest.number} ${card.draftPullRequest.url}`
+			const pullRequest = card.pullRequest
+				? ` · ${card.pullRequest.state} PR #${card.pullRequest.number} ${card.pullRequest.url}`
 				: "";
 			return `${card.lifecycle} · tasks ${progress(card.tasks)} · artifacts ${progress(card.artifacts)}${pullRequest}${diagnostics}`;
 		}
@@ -338,10 +378,11 @@ function canonicalCardSummary(card: CanonicalWorkCard | CanonicalSpecCard): stri
 			const diagnostics = card.diagnostics?.length
 				? ` · ${card.diagnostics.length} diagnostics · ${formatDiagnostic(card.diagnostics[0]!)}`
 				: "";
-			return `archived ${card.archived ?? "date unavailable"} · tasks ${progress(card.tasks)}${artifacts}${diagnostics}`;
+			const pullRequest = card.pullRequest
+				? ` · ${card.pullRequest.state} PR #${card.pullRequest.number} ${card.pullRequest.url}`
+				: "";
+			return `archived ${card.archived ?? "date unavailable"} · tasks ${progress(card.tasks)}${artifacts}${pullRequest}${diagnostics}`;
 		}
-		case "spec":
-			return `${card.locator} · ${card.requirementCount} requirements${card.diagnostic ? ` · ${card.diagnostic}` : ""}`;
 	}
 }
 

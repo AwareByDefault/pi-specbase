@@ -195,6 +195,40 @@ describe("fixture board", () => {
 		for (const line of titleRows) expect(visibleWidth(line)).toBeLessThanOrEqual(30);
 	});
 
+	it("keeps the canonical stack ordinal visible before truncating a long shared label", () => {
+		const board = new FixtureBoard({
+			tui: { requestRender: vi.fn(), terminal: { rows: 40, columns: 24 } },
+			theme,
+			snapshot: {
+				id: "long-stack-label",
+				title: "Long stack label",
+				columns: [
+					{
+						id: "one",
+						label: "One",
+						cards: [
+							{
+								id: "stacked",
+								title: "Stacked card",
+								summary: "Summary",
+								stack: { id: "a-very-long-canonical-stack-identity", position: 2, total: 3 },
+								stackLabel: "a-very-long-canonical-stack-identity",
+								activity: "RPIV running",
+								actions: [],
+							},
+						],
+					},
+				],
+			},
+			done: vi.fn(),
+		});
+		const frame = board.render(24);
+		const rail = frame.find((line) => line.includes("┊"));
+		expect(frame.join("\n")).toContain("RPIV running");
+		expect(rail).toContain("2/3");
+		expect(visibleWidth(rail ?? "")).toBeLessThanOrEqual(24);
+	});
+
 	it("moves one logical card at a time and windows mixed-height cards by complete rendered rows", () => {
 		const cards = [
 			{ id: "card-0", title: "Card zero", summary: "Summary", actions: [] },
@@ -225,6 +259,47 @@ describe("fixture board", () => {
 		expect(board.getFocus().cardId).toBe("card-5");
 		board.handleInput("j");
 		expect(board.getFocus().cardId).toBe("card-6");
+	});
+
+	it("scrolls complete activity and canonical stack context with keyboard-only detail controls", () => {
+		const board = new FixtureBoard({
+			tui: { requestRender: vi.fn(), terminal: { rows: 24, columns: 52 } },
+			theme,
+			snapshot: {
+				id: "detail-scroll",
+				title: "Detail scroll",
+				columns: [
+					{
+						id: "one",
+						label: "One",
+						cards: [
+							{
+								id: "stacked",
+								title: "Stacked card",
+								summary: "Summary",
+								activity: "RPIV running",
+								activityDetail:
+									"RPIV running · workflow deliver · stage implement · units 1/3 · retry 2 · run run-detail",
+								stack: { id: "delivery", position: 2, total: 20 },
+								stackLabel: "delivery",
+								stackContext: { members: Array.from({ length: 20 }, (_, index) => `member-${index}`) },
+								actions: [],
+							},
+						],
+					},
+				],
+			},
+			done: vi.fn(),
+		});
+		board.handleInput("\r");
+		const first = board.render(52).join("\n");
+		expect(first).toContain("workflow deliver");
+		expect(first).toContain("implement · units");
+		expect(first).toContain("member-0");
+		for (let index = 0; index < 12; index++) board.handleInput("j");
+		const later = board.render(52).join("\n");
+		expect(later).not.toContain("workflow deliver");
+		expect(later).toContain("member-19");
 	});
 
 	it("returns only populated sparse rows below the safe board cap", () => {

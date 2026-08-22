@@ -1,6 +1,6 @@
 import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
-import { Key, type KeyId, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Key, type KeyId, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { getBoardLayout } from "./layout.js";
 import type { BoardAction, BoardCard, BoardIntent, BoardLoadStatus, BoardSnapshot } from "./types.js";
 
@@ -31,6 +31,10 @@ export interface BoardFocus {
 	readonly actionId?: string;
 }
 
+interface RenderedCard {
+	readonly lines: readonly string[];
+}
+
 /** Keyboard-only, snapshot-only board. It never reads or writes a source. */
 export class FixtureBoard {
 	private readonly subscription: BoardSubscription | undefined;
@@ -39,6 +43,7 @@ export class FixtureBoard {
 	private columnIndex = 0;
 	private cardIndex: number | undefined;
 	private actionIndex = 0;
+	private detailOffset = 0;
 	private snapshot: BoardSnapshot;
 	private status: BoardLoadStatus | undefined;
 
@@ -108,46 +113,46 @@ export class FixtureBoard {
 			visibleColumns
 				.map((column) => {
 					const focused = column.id === focus.columnId;
-					const label = `${focused ? "▶" : " "} ${column.label} (${column.cards.length})`;
-					return this.cell(label, columnWidth, focused ? "accent" : "muted");
+					return this.cell(
+						`${focused ? "▶" : " "} ${column.label} (${column.cards.length})`,
+						columnWidth,
+						focused ? "accent" : "muted",
+					);
 				})
 				.join(gap),
 		);
 
-		const statusRows = this.status ? 1 : 0;
-		const detailRows = this.stage === "cards" || !this.currentCard ? 0 : 1;
-		const blockedDetailRows = this.stage === "actions" && this.currentAction && !this.currentAction.enabled ? 1 : 0;
 		const actions = this.stage === "actions" ? (this.currentCard?.actions ?? []) : [];
-		const actionRows = actions.length
-			? Math.max(1, Math.min(actions.length, layout.maxRows - 3 - statusRows - detailRows - blockedDetailRows))
-			: 0;
-		const cardRows = Math.max(0, layout.maxRows - 3 - statusRows - detailRows - blockedDetailRows - actionRows);
-
-		for (let row = 0; row < cardRows; row++) {
-			const rowText = visibleColumns
-				.map((column) => {
-					const focusedColumn = column.id === focus.columnId;
-					const start =
-						focusedColumn && this.cardIndex !== undefined
-							? Math.min(Math.max(0, this.cardIndex - cardRows + 1), Math.max(0, column.cards.length - cardRows))
-							: 0;
-					const index = start + row;
-					const card = column.cards[index];
-					if (!card) return this.cell("", columnWidth, "dim");
-					const focusedCard = focusedColumn && this.cardIndex === index;
-					return this.cell(
-						`${focusedCard ? "›" : " "} ${card.activity ? `${card.activity} · ` : ""}${card.title}`,
-						columnWidth,
-						focusedCard ? "accent" : "text",
-					);
-				})
-				.join(gap);
-			add(rowText);
+		const blockedDetailRows = this.stage === "actions" && this.currentAction && !this.currentAction.enabled ? 1 : 0;
+		const fixedRows = lines.length + 1 + blockedDetailRows;
+		const actionRows = actions.length ? Math.min(actions.length, Math.max(1, layout.maxRows - fixedRows - 1)) : 0;
+		const detailBudget =
+			this.stage === "cards" || !this.currentCard ? 0 : Math.max(0, layout.maxRows - fixedRows - actionRows);
+		const allDetailLines = detailBudget ? this.detailLines(this.currentCard!, width) : [];
+		const detailStart = Math.min(this.detailOffset, Math.max(0, allDetailLines.length - detailBudget));
+		const detailLines = allDetailLines.slice(detailStart, detailStart + detailBudget);
+		const cardBudget = this.stage === "cards" ? Math.max(0, layout.maxRows - fixedRows) : 0;
+		const columnLines = visibleColumns.map((column) =>
+			this.visibleCardLines(
+				column.cards,
+				column.id === focus.columnId ? this.cardIndex : undefined,
+				columnWidth,
+				cardBudget,
+			),
+		);
+		const populatedCardRows = Math.max(0, ...columnLines.map((column) => column.length));
+		for (let row = 0; row < populatedCardRows; row++) {
+			add(
+				columnLines
+					.map((column, index) => {
+						const line = column[row];
+						const focusedColumn = visibleColumns[index]!.id === focus.columnId;
+						return this.cell(line?.text ?? "", columnWidth, focusedColumn && line?.focused ? "accent" : "text");
+					})
+					.join(gap),
+			);
 		}
-
-		if (detailRows && this.currentCard) {
-			add(theme.fg("muted", ` ${this.currentCard.title}: ${this.currentCard.summary}`));
-		}
+		for (const detail of detailLines) add(theme.fg("muted", detail));
 		if (actions.length) {
 			const start = Math.min(
 				Math.max(0, this.actionIndex - actionRows + 1),
@@ -156,11 +161,10 @@ export class FixtureBoard {
 			for (let index = start; index < start + actionRows; index++) {
 				const action = actions[index]!;
 				const focusedAction = index === this.actionIndex;
-				const enabled = action.enabled ? "" : " (blocked)";
 				add(
 					theme.fg(
 						focusedAction ? "accent" : action.enabled ? "text" : "dim",
-						` ${focusedAction ? "›" : " "} ${action.label}${enabled}`,
+						` ${focusedAction ? "›" : " "} ${action.label}${action.enabled ? "" : " (blocked)"}`,
 					),
 				);
 			}
@@ -216,6 +220,7 @@ export class FixtureBoard {
 		}
 		this.stage = "cards";
 		this.actionIndex = 0;
+		this.detailOffset = 0;
 		this.changed();
 	}
 
@@ -253,6 +258,7 @@ export class FixtureBoard {
 		else if (this.matches(data, "tui.select.down", [Key.down]) || data === "j") this.moveCard(1);
 		else if (this.isConfirm(data) && this.currentCard) {
 			this.stage = "detail";
+			this.detailOffset = 0;
 			this.changed();
 		}
 	}
@@ -260,6 +266,13 @@ export class FixtureBoard {
 	private handleDetailInput(data: string): void {
 		if (matchesKey(data, Key.left) || data === "h") {
 			this.stage = "cards";
+			this.detailOffset = 0;
+			this.changed();
+		} else if (this.matches(data, "tui.select.up", [Key.up]) || data === "k") {
+			this.detailOffset = Math.max(0, this.detailOffset - 1);
+			this.changed();
+		} else if (this.matches(data, "tui.select.down", [Key.down]) || data === "j") {
+			this.detailOffset += 1;
 			this.changed();
 		} else if (this.isConfirm(data) && this.currentCard?.actions.length) {
 			this.stage = "actions";
@@ -320,10 +333,75 @@ export class FixtureBoard {
 		return columns.slice(start, start + count);
 	}
 
+	private visibleCardLines(
+		cards: readonly BoardCard[],
+		focusedIndex: number | undefined,
+		width: number,
+		budget: number,
+	): Array<{ text: string; focused: boolean }> {
+		if (budget <= 0) return [];
+		const rendered = cards.map(
+			(card, index): RenderedCard => ({
+				lines: this.cardLines(card, index === focusedIndex, width),
+			}),
+		);
+		let start = 0;
+		if (focusedIndex !== undefined && rendered[focusedIndex]) {
+			start = focusedIndex;
+			let used = rendered[focusedIndex]!.lines.length;
+			while (start > 0 && used + rendered[start - 1]!.lines.length <= budget) {
+				start -= 1;
+				used += rendered[start]!.lines.length;
+			}
+		}
+		const rows: Array<{ text: string; focused: boolean }> = [];
+		for (let index = start; index < rendered.length; index++) {
+			const entry = rendered[index]!;
+			if (rows.length && rows.length + entry.lines.length > budget) break;
+			for (const text of entry.lines) rows.push({ text, focused: index === focusedIndex });
+			if (rows.length >= budget) break;
+		}
+		return rows;
+	}
+
+	private cardLines(card: BoardCard, focused: boolean, width: number): readonly string[] {
+		const prefix = `${focused ? "›" : " "} `;
+		const continuation = "  ";
+		const titleWidth = Math.max(1, width - visibleWidth(continuation));
+		const wrapped = wrapTextWithAnsi(card.title, titleWidth);
+		const safeWrapped = /\u001b\[/u.test(card.title)
+			? wrapped
+			: wrapped.map((line) => line.replaceAll("\u001b[0m", ""));
+		const titleLines =
+			safeWrapped.length > 2
+				? [safeWrapped[0]!, truncateToWidth(`${safeWrapped[1]!}…`, titleWidth, "…")]
+				: safeWrapped.length
+					? safeWrapped
+					: [""];
+		const rail =
+			card.stack && card.stackLabel ? `┊ ${card.stack.position}/${card.stack.total} ${card.stackLabel}` : undefined;
+		const metadata = [card.activity, rail].filter((value): value is string => Boolean(value));
+		if (!metadata.length) return titleLines.map((line, index) => `${index === 0 ? prefix : continuation}${line}`);
+		return [
+			...metadata.map((line, index) => `${index === 0 ? prefix : continuation}${line}`),
+			...titleLines.map((line) => `${continuation}${line}`),
+		];
+	}
+
+	private detailLines(card: BoardCard, width: number): readonly string[] {
+		const detail = [` ${card.title}: ${card.summary}`];
+		if (card.activityDetail) detail.push(` Activity: ${card.activityDetail}`);
+		if (card.stack)
+			detail.push(` Stack: ${card.stackLabel ?? card.stack.id} ${card.stack.position}/${card.stack.total}`);
+		if (card.stackContext) detail.push(` Stack context: ${JSON.stringify(card.stackContext)}`);
+		return detail.flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width)));
+	}
+
 	private cell(text: string, width: number, color: "accent" | "muted" | "text" | "dim"): string {
 		const clipped = truncateToWidth(text, width, "…");
-		const padding = " ".repeat(Math.max(0, width - visibleWidth(clipped)));
-		return `${this.theme.fg(color, clipped)}${padding}`;
+		const safe = /\u001b\[/u.test(text) ? clipped : clipped.replaceAll("\u001b[0m", "");
+		const padding = " ".repeat(Math.max(0, width - visibleWidth(safe)));
+		return `${this.theme.fg(color, safe)}${padding}`;
 	}
 
 	private helpText(): string {
@@ -332,8 +410,8 @@ export class FixtureBoard {
 			return ` Esc/Ctrl+C cancel${refresh} · h/l or ←/→ columns · j/k or ↑/↓ cards · Enter detail`;
 		if (this.stage === "detail")
 			return this.currentCard?.actions.length
-				? ` Esc/Ctrl+C cancel${refresh} · h/← back · Enter actions`
-				: ` Esc/Ctrl+C cancel${refresh} · h/← back · no actions in this snapshot`;
+				? ` Esc/Ctrl+C cancel${refresh} · j/k or ↑/↓ detail · h/← back · Enter actions`
+				: ` Esc/Ctrl+C cancel${refresh} · j/k or ↑/↓ detail · h/← back · no actions in this snapshot`;
 		if (this.currentAction && !this.currentAction.enabled)
 			return ` Esc/Ctrl+C cancel${refresh} · Blocked — reason above · j/k or ↑/↓ actions · h/← back`;
 		return ` Esc/Ctrl+C cancel${refresh} · j/k or ↑/↓ actions · Enter select · h/← back`;

@@ -55,7 +55,7 @@ function accepted(descriptor: DirectActionDescriptor) {
 
 function canonicalSnapshot(): CanonicalKanbanSnapshot {
 	return {
-		version: 3,
+		version: 4,
 		project: { name: "action-fixture" },
 		summary: {},
 		lanes: {
@@ -85,7 +85,6 @@ function canonicalSnapshot(): CanonicalKanbanSnapshot {
 			reviewing: [],
 			archived: [],
 		},
-		specs: [],
 		diagnostics: [],
 	};
 }
@@ -107,10 +106,11 @@ function fakeApi(
 ): SpecbasePublicApi {
 	const snapshot = canonicalSnapshot();
 	return {
-		KANBAN_BOARD_VERSION: 3,
+		KANBAN_BOARD_VERSION: 4,
 		DIRECT_ACTION_CATALOG_VERSION: 1,
 		deriveKanbanBoard: vi.fn(async () => snapshot),
 		validateKanbanBoardSnapshot: vi.fn(() => ({ valid: true as const, snapshot, diagnostics: [] as const })),
+		getChangeStackContext: vi.fn(async () => null),
 		getDirectActions:
 			options.getActions ??
 			vi.fn(async ({ workItemId }) => catalog(workItemId, workItemId === "change-1" ? [skillDescriptor] : [])),

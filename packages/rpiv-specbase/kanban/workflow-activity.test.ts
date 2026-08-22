@@ -266,8 +266,9 @@ describe("workflow activity projection", () => {
 		expect(composed).not.toBe(canonical);
 		expect(composed.source).toBe(canonical.source);
 		expect(canonical.columns[0]!.cards[0]!.summary).toBe("implementing · tasks 1/2");
-		expect(composed.columns[0]!.cards[0]!.summary).toContain("RPIV running · deliver");
-		expect(composed.columns[0]!.cards[0]!.activity).toContain("run run-card");
+		expect(composed.columns[0]!.cards[0]!.summary).toBe("implementing · tasks 1/2");
+		expect(composed.columns[0]!.cards[0]!.activity).toBe("RPIV running");
+		expect(composed.columns[0]!.cards[0]!.activityDetail).toContain("run run-card");
 		const rendered = new FixtureBoard({
 			tui: { requestRender: vi.fn(), terminal: { rows: 40, columns: 120 } },
 			theme: makeTheme() as unknown as Theme,
@@ -308,7 +309,7 @@ describe("workflow activity projection", () => {
 		const completeActivity = formatWorkflowActivity(store.get("/project", "acme", "change-1")!);
 		const composed = composeWorkflowActivity(board(), "/project", "acme", store);
 		const card = composed.columns[0]!.cards[0]!;
-		expect(card.summary).toContain(completeActivity);
+		expect(card.summary).not.toContain(completeActivity);
 		expect(card.activity).toContain("RPIV running");
 		expect(card.activity).not.toContain("stage implement");
 		expect(card.activity).not.toContain("units 0/2");

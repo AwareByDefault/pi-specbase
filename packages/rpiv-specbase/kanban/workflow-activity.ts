@@ -351,12 +351,21 @@ export function composeWorkflowActivity(
 			const activity = store.get(root, storeId, card.id);
 			if (!activity) return card;
 			changed = true;
-			const rendered = formatWorkflowActivity(activity);
-			return { ...card, activity: rendered, summary: `${card.summary} · ${rendered}` };
+			const completeActivity = formatWorkflowActivity(activity);
+			return {
+				...card,
+				activity: formatCompactWorkflowActivity(activity),
+				activityDetail: completeActivity,
+			};
 		});
 		return cards.some((card, index) => card !== column.cards[index]) ? { ...column, cards } : column;
 	});
 	return changed ? { ...snapshot, columns } : snapshot;
+}
+
+/** Card scan state deliberately excludes workflow detail retained in the selected-card recap. */
+export function formatCompactWorkflowActivity(activity: WorkflowActivity): string {
+	return `RPIV ${activity.status}`;
 }
 
 export function formatWorkflowActivity(activity: WorkflowActivity): string {

@@ -11,12 +11,29 @@ export interface BoardAction {
 	readonly source?: unknown;
 }
 
+export interface BoardStack {
+	readonly id: string;
+	readonly position: number;
+	readonly total: number;
+}
+
+/** Full context returned by the canonical public stack API; never locally derived. */
+export type BoardStackContext = Readonly<Record<string, unknown>>;
+
 export interface BoardCard {
 	readonly id: string;
 	readonly title: string;
 	readonly summary: string;
-	/** Optional live activity badge rendered on the card row and in detail. */
+	/** Concise live activity badge rendered on the card row; detail retains the full recap. */
 	readonly activity?: string;
+	/** Complete live activity recap shown only in selected-card detail. */
+	readonly activityDetail?: string;
+	/** Exact canonical stack identity and position, when the card is annotated. */
+	readonly stack?: BoardStack;
+	/** Stable compact rail label derived only from the canonical stack identity. */
+	readonly stackLabel?: string;
+	/** Full canonical stack detail resolved during the source load, when available. */
+	readonly stackContext?: BoardStackContext;
 	readonly actions: readonly BoardAction[];
 	/** Unmodified source card retained across the presentation seam. */
 	readonly source?: unknown;
