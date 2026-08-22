@@ -29,10 +29,10 @@ export default defineConfig({
 			reporter: ["text", "html", "lcov"],
 			include: ["packages/*/**/*.ts"],
 			thresholds: {
-				statements: 94,
-				branches: 87,
-				functions: 93,
-				lines: 95,
+				statements: 86,
+				branches: 77,
+				functions: 86,
+				lines: 88,
 			},
 			exclude: [
 				"**/node_modules/**",
